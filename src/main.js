@@ -621,12 +621,27 @@ function buildSamurai(x,z,rotY,armorKind='lacquer', opts={}){
   const legKind = opts.protagonist ? 'crimson' : 'cloth';
   const accent = opts.protagonist ? 'gold' : 'lacquer';
 
+  // hierarchical samurai legs with knee joints (hip → knee → foot)
+  const samuraiLegs=[];
+  for(const s of [-1,1]){
+    const hip = new THREE.Group();
+    hip.position.set(s*2.2*M, 6.7*M, 0);
+    body.add(hip);
+    part(hip, b=>{
+      mbox(b,legKind, 0, -1.55, 0, 3.4, 3.65, 3.4);
+      mbox(b,legKind, 0, 0.45, 0, 3.85, 0.95, 3.85); // hip flare
+      mbox(b,'dark', 0, -3.38, 0.12, 3.52, 0.52, 3.52); // knee guard
+    });
+    const shin = new THREE.Group();
+    shin.position.set(0, -3.62*M, 0);
+    hip.add(shin);
+    part(shin, b=>{
+      mbox(b,legKind, 0, -1.72, 0, 3.22, 3.45, 3.22);
+      mbox(b,'dark', 0, -3.62, 0.04, 3.62, 0.88, 4.05);
+    });
+    samuraiLegs.push({hip, knee: shin, root: hip});
+  }
   part(body,b=>{
-    for(const s of [-1,1]){
-      mbox(b,legKind, s*2.2, 3.4, 0, 3.4, 7.0, 3.4);
-      mbox(b,'dark',  s*2.2, 0.4, 0.3, 3.6, 1.0, 4.2);
-      mbox(b,legKind, s*2.2, 6.6, 0, 3.8, 1.2, 3.8);
-    }
     if(opts.protagonist){
       mbox(b,'gold', 0, 7.4, 2.6, 2.6, 0.6, 0.5);
       mbox(b,'crimson', 0, 4.8, 0, 4.6, 0.5, 4.6);
@@ -749,7 +764,7 @@ function buildSamurai(x,z,rotY,armorKind='lacquer', opts={}){
     scene.add(blockPreview);
   }
 
-  const rec={root,body,torso,head,arms,katana,phase:rnd(Math.PI*2),baseY:gy, isProtagonist:!!opts.protagonist, wield, pickaxe, blockPreview, sashimono, hp: opts.protagonist?100:30, dead:false};
+  const rec={root,body,torso,head,arms,katana,legs: samuraiLegs, phase:rnd(Math.PI*2),baseY:gy, isProtagonist:!!opts.protagonist, wield, pickaxe, blockPreview, sashimono, hp: opts.protagonist?100:30, dead:false};
   samurai.push(rec);
   return rec;
 }
@@ -775,19 +790,31 @@ function buildSheep(x,z){
     for(const s of [-1,1]) mbox(b,'dark', 6.0, 10.4, s*2.0, 1.4,1.0,1.6);
     mbox(b,'dark', 8.2, 8.6, 0, 1.0,1.0,1.8);
   });
+  // hierarchical legs with knee joints for realistic trot
   const legs=[];
   for(const sx of [-1,1]) for(const sz of [-1,1]){
-    legs.push(part(body,b=>{
-      mbox(b,'dark', sx*3.4, 3.0, sz*2.2, 1.5, 6.4, 1.5);
-      mbox(b,'dark', sx*3.4, 0.3, sz*2.2, 1.8, 0.7, 1.8);
-    }));
+    const hip = new THREE.Group();
+    hip.position.set(sx*3.4*M, 6.2*M, sz*2.2*M);
+    body.add(hip);
+    const upper = part(hip, b=>{
+      mbox(b,'dark', 0, -1.45, 0, 1.55, 3.0, 1.55);
+      mbox(b,'dark', 0, -3.05, 0.10, 1.62, 0.45, 1.62); // knee cap
+    });
+    const shin = new THREE.Group();
+    shin.position.set(0, -3.28*M, 0);
+    hip.add(shin);
+    part(shin, b=>{
+      mbox(b,'dark', 0, -1.48, 0, 1.42, 3.0, 1.42);
+      mbox(b,'dark', 0, -3.22, 0, 1.85, 0.72, 1.85);
+    });
+    legs.push({hip, knee: shin, root: hip});
   }
   const a={type:'sheep',root,body,head,legs,phase:rnd(Math.PI*2),
     dir:rnd(Math.PI*2),speed:rnd(1.5,0.7),state:'walk',timer:rnd(6,2),baseY:gy, hp:12, dead:false};
   animals.push(a); return a;
 }
 
-/* ALPACA - fixed legs: forward axis is X so rotate around Z */
+/* ALPACA - fixed legs: forward axis is X so rotate around Z + knee joints */
 function buildAlpaca(x,z){
   const gy=terrainHeight(x,z);
   const root=new THREE.Group(); root.position.set(x,gy,z);
@@ -814,10 +841,21 @@ function buildAlpaca(x,z){
   },[4.2*M, 13.5*M, 0]);
   const legs=[];
   for(const sx of [-1,1]) for(const sz of [-1,1]){
-    legs.push(part(body,b=>{
-      mbox(b,sx>0?coat:coat, sx*3.2, 5.0, sz*2.0, 1.7, 10.0, 1.7);
-      mbox(b,'dark', sx*3.2, 0.4, sz*2.0, 1.9, 0.9, 1.9);
-    }));
+    const hip = new THREE.Group();
+    hip.position.set(sx*3.2*M, 8.0*M, sz*2.0*M);
+    body.add(hip);
+    part(hip, b=>{
+      mbox(b,coat, 0, -2.05, 0, 1.75, 4.2, 1.75);
+      mbox(b,'dark', 0, -4.35, 0.12, 1.82, 0.48, 1.82); // knee
+    });
+    const shin = new THREE.Group();
+    shin.position.set(0, -4.55*M, 0);
+    hip.add(shin);
+    part(shin, b=>{
+      mbox(b,coat, 0, -2.35, 0, 1.62, 4.7, 1.62);
+      mbox(b,'dark', 0, -4.95, 0, 1.92, 0.92, 1.92);
+    });
+    legs.push({hip, knee: shin, root: hip});
   }
   const a={type:'alpaca',root,body,head:neck,neck,legs,phase:rnd(Math.PI*2),
     dir:rnd(Math.PI*2),speed:rnd(1.2,0.5),state:'walk',timer:rnd(6,2),baseY:gy, hp:14, dead:false};
@@ -1083,6 +1121,7 @@ const camTween={active:false,t:0,dur:1.7,
 function gotoCam(key){
   if(key==='third' && player){ setCameraMode('third'); return; }
   if(key==='first' && player){ setCameraMode('first'); return; }
+  if(key==='diablo' && player){ setCameraMode('diablo'); return; }
   // leaving follow modes for preset cams
   setCameraMode('free');
   const c=CAMS[key]; if(!c) return;
@@ -1109,21 +1148,37 @@ function setCameraMode(mode){
   // UI toggles
   document.getElementById('btn-follow')?.classList.toggle('on', mode==='third');
   document.getElementById('btn-first')?.classList.toggle('on', mode==='first');
+  document.getElementById('btn-diablo')?.classList.toggle('on', mode==='diablo');
   document.querySelectorAll('.cbtn').forEach(b=>{
     const isThird = b.dataset.cam==='third';
     const isFirst = b.dataset.cam==='first';
-    b.classList.toggle('on', (mode==='third'&&isThird) || (mode==='first'&&isFirst) || (mode==='free'&&false));
-    if(mode!=='third' && mode!=='first' && b.dataset.cam!==mode) b.classList.remove('on');
+    const isDiablo = b.dataset.cam==='diablo';
+    const on = (mode==='third'&&isThird) || (mode==='first'&&isFirst) || (mode==='diablo'&&isDiablo);
+    b.classList.toggle('on', on);
+    if(mode!=='third' && mode!=='first' && mode!=='diablo' && b.dataset.cam!==mode) b.classList.remove('on');
   });
   // controls handling
   if(mode==='first'){
     controls.enabled=false;
+    controls.enableRotate=false;
+    controls.enablePan=false;
+    controls.enableZoom=false;
     if(player && player.head) player.head.visible=false;
     showHudMsg('First Person');
+  } else if(mode==='diablo'){
+    controls.enabled=true;
+    controls.enableRotate=false;
+    controls.enablePan=true;
+    controls.enableZoom=true;
+    if(player && player.head) player.head.visible=true;
+    showHudMsg('Diablo Overhead');
   } else {
     controls.enabled=true;
+    controls.enableRotate=true;
+    controls.enablePan=true;
+    controls.enableZoom=true;
     if(player && player.head) player.head.visible=true;
-    if(mode==='third') showHudMsg('Third Person — Tomb Raider high');
+    if(mode==='third') showHudMsg('Third Person — Far & High');
     else showHudMsg('Free Camera');
   }
   camTween.active=false;
@@ -1319,14 +1374,40 @@ function updatePlayer(dt,t){
   // Our micro voxel legs are oriented same as animals: forward = X, so rotate Z.
   // But samurai legs: model has legs at +/- X? Let's animate with simple bob + arm swing
   const swing = moving ? Math.sin(time*(playerState.isRunning?9.2:6.2))*0.42 : 0;
-  // For samurai, approximate: arms swing Z? original used rotation.x for arms.
-  // Keep similar but add protagonist run
+  // arms
   if(!isAir){
     player.arms[0].rotation.x = swing*0.6;
     player.arms[1].rotation.x = -swing*0.6;
   } else {
     player.arms[0].rotation.x = lerp(player.arms[0].rotation.x, -0.4, dt*6);
     player.arms[1].rotation.x = lerp(player.arms[1].rotation.x, 0.4, dt*6);
+  }
+  // samurai knee walk — biped hip + knee
+  if(player.legs && player.legs[0]){
+    if(moving && !isAir && !playerState.isCrawling){
+      const ls = Math.sin(time*(playerState.isRunning?8.6:6.2));
+      const rs = -ls;
+      player.legs[0].hip.rotation.z = ls*0.54;
+      player.legs[0].knee.rotation.z = ls>0 ? ls*0.92+0.34 : ls*0.16;
+      player.legs[1].hip.rotation.z = rs*0.54;
+      player.legs[1].knee.rotation.z = rs>0 ? rs*0.92+0.34 : rs*0.16;
+    } else if(playerState.isCrawling && moving){
+      const cs = Math.sin(time*3.2);
+      player.legs[0].hip.rotation.z = cs*0.22;
+      player.legs[0].knee.rotation.z = 0.62 + cs*0.18;
+      player.legs[1].hip.rotation.z = -cs*0.22;
+      player.legs[1].knee.rotation.z = 0.62 - cs*0.18;
+    } else if(isAir){
+      player.legs[0].hip.rotation.z = lerp(player.legs[0].hip.rotation.z, -0.18, dt*6);
+      player.legs[0].knee.rotation.z = lerp(player.legs[0].knee.rotation.z, 0.95, dt*6);
+      player.legs[1].hip.rotation.z = lerp(player.legs[1].hip.rotation.z, -0.18, dt*6);
+      player.legs[1].knee.rotation.z = lerp(player.legs[1].knee.rotation.z, 0.95, dt*6);
+    } else {
+      for(const Lg of player.legs){
+        Lg.hip.rotation.z = lerp(Lg.hip.rotation.z, 0, dt*5);
+        Lg.knee.rotation.z = lerp(Lg.knee.rotation.z, 0, dt*5);
+      }
+    }
   }
   // weapon bob — idle upward angle ~0.52 rad from vertical
   if(player.wield){
@@ -1623,6 +1704,10 @@ addEventListener('keydown',e=>{
     if(cameraMode==='first') setCameraMode('third');
     else setCameraMode('first');
   }
+  if(e.code==='KeyB' || e.code==='KeyO'){
+    if(cameraMode==='diablo') setCameraMode('third');
+    else setCameraMode('diablo');
+  }
 });
 
 /* =======================================================================
@@ -1651,6 +1736,11 @@ function wireUI(){
   if(firstBtn) firstBtn.addEventListener('click',()=>{
     if(cameraMode==='first') setCameraMode('third');
     else setCameraMode('first');
+  });
+  const diabloBtn=document.getElementById('btn-diablo');
+  if(diabloBtn) diabloBtn.addEventListener('click',()=>{
+    if(cameraMode==='diablo') setCameraMode('third');
+    else setCameraMode('diablo');
   });
   const ui=document.getElementById('ui'), tog=document.getElementById('ui-toggle');
   const hideBtn=document.getElementById('btn-hide');
@@ -1712,9 +1802,15 @@ function animateActors(t,dt){
         s.root.position.x += Math.sin(dir)*sp;
         s.root.position.z += Math.cos(dir)*sp;
         s.root.position.y = terrainHeight(s.root.position.x, s.root.position.z);
-        // walking anim for enemies
+        // biped knee walk: alternate left/right hip + knee
         const st=Math.sin(t*6.8);
-        // For samurai, legs not explicitly separated; but body bob
+        const hipL = st*0.52, hipR = -st*0.52;
+        if(s.legs && s.legs[0]){
+          s.legs[0].hip.rotation.z = hipL;
+          s.legs[0].knee.rotation.z = hipL>0 ? hipL*0.95+0.28 : hipL*0.15;
+          s.legs[1].hip.rotation.z = hipR;
+          s.legs[1].knee.rotation.z = hipR>0 ? hipR*0.95+0.28 : hipR*0.15;
+        }
         s.body.position.y += Math.abs(st)*0.06;
       } else if(dist<=2.4 && t%1.2<0.05){
         // attack player occasionally
@@ -1726,6 +1822,22 @@ function animateActors(t,dt){
         if(playerState.hp<=0){
           player.dead=true;
           showHudMsg('You were defeated! Refresh to restart');
+        }
+      } else {
+        // idle: straighten knees
+        if(s.legs && s.legs[0]){
+          for(const Lg of s.legs){
+            Lg.hip.rotation.z = lerp(Lg.hip.rotation.z, 0, dt*4);
+            Lg.knee.rotation.z = lerp(Lg.knee.rotation.z, 0, dt*4);
+          }
+        }
+      }
+    } else {
+      // no player: idle
+      if(s.legs && s.legs[0]){
+        for(const Lg of s.legs){
+          Lg.hip.rotation.z = lerp(Lg.hip.rotation.z, 0, dt*4);
+          Lg.knee.rotation.z = lerp(Lg.knee.rotation.z, 0, dt*4);
         }
       }
     }
@@ -1765,16 +1877,26 @@ function animateActors(t,dt){
       }
       a.root.position.y = terrainHeight(a.root.position.x,a.root.position.z);
       a.root.rotation.y = a.dir - Math.PI/2;
-      // FIXED: rotate around Z (forward = X) not X, so legs swing forward/back
+      // knee-jointed trot: hip swings, knee bends on forward swing for ground clearance
       const st=Math.sin(t*6.2+a.phase);
-      a.legs[0].rotation.z =  st*0.5;  a.legs[3].rotation.z =  st*0.5;
-      a.legs[1].rotation.z = -st*0.5;  a.legs[2].rotation.z = -st*0.5;
+      const setLeg=(leg, hipAngle)=>{
+        leg.hip.rotation.z = hipAngle;
+        // knee flexes extra when hip forward (>0) to lift foot, else slight follow
+        const kneeFlex = hipAngle>0 ? hipAngle*1.05 + 0.32 : hipAngle*0.22;
+        leg.knee.rotation.z = kneeFlex;
+      };
+      const hipA = st*0.44, hipB = -st*0.44;
+      setLeg(a.legs[0], hipA); setLeg(a.legs[3], hipA);
+      setLeg(a.legs[1], hipB); setLeg(a.legs[2], hipB);
       a.body.position.y = Math.abs(Math.sin(t*6.2+a.phase))*0.06;
       if(a.type==='alpaca') a.neck.rotation.z = lerp(a.neck.rotation.z, -0.12, dt*3);
       else a.head.rotation.z = lerp(a.head.rotation.z, 0, dt*3);
     } else {
       const bob=Math.sin(t*2.3+a.phase)*0.12;
-      for(const L of a.legs) L.rotation.z = lerp(L.rotation.z,0,dt*4);
+      for(const L of a.legs){
+        L.hip.rotation.z = lerp(L.hip.rotation.z, 0, dt*4);
+        L.knee.rotation.z = lerp(L.knee.rotation.z, 0, dt*4);
+      }
       if(a.type==='alpaca') a.neck.rotation.z = lerp(a.neck.rotation.z, 1.15+bob*0.35, dt*2.4);
       else a.head.rotation.z = lerp(a.head.rotation.z, 0.55+bob*0.3, dt*2.4);
       a.body.position.y = lerp(a.body.position.y, bob*0.05, dt*3);
@@ -1830,13 +1952,13 @@ function animateActors(t,dt){
   }
   // player update
   updatePlayer(dt,t);
-  // Tomb Raider style third-person (wide & far) + first-person (outside helmet)
+  // Tomb Raider style third-person (even wider & farther) + first-person (outside helmet) + diablo
   if(cameraMode==='third' && player && !camTween.active){
     const targetPos=player.root.position.clone();
     targetPos.y+= playerState.isCrawling?0.85:2.05;
-    // Wider & further behind: FOV 64 + dist 14.5 so user sees far ahead
-    const dist = playerState.isCrawling? 7.5 : (playerState.isRunning? 16.0 : 14.8);
-    const height = playerState.isCrawling? 3.2 : (playerState.isRunning? 9.2 : 8.7);
+    // Even farther & higher per request: FOV 64 + dist 19 so horizon visible
+    const dist = playerState.isCrawling? 8.8 : (playerState.isRunning? 20.5 : 19.0);
+    const height = playerState.isCrawling? 4.2 : (playerState.isRunning? 11.2 : 10.2);
     const yaw = player.yaw;
     const camX = targetPos.x - Math.sin(yaw)*dist;
     const camZ = targetPos.z - Math.cos(yaw)*dist;
@@ -1862,6 +1984,13 @@ function animateActors(t,dt){
     camera.position.lerp(eye, clamp(dt*14,0,1));
     camera.lookAt(target);
     controls.target.copy(target);
+  } else if(cameraMode==='diablo' && player && !camTween.active){
+    // Diablo: overhead top-down, slightly angled (like 58°), fixed north-ish, follows player
+    const target = player.root.position.clone();
+    target.y += 1.0;
+    const desired = new THREE.Vector3(target.x, target.y + 34.5, target.z + 12.5);
+    camera.position.lerp(desired, clamp(dt*3.8,0,1));
+    controls.target.lerp(target, clamp(dt*4.2,0,1));
   }
 }
 
