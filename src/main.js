@@ -790,15 +790,16 @@ function buildSamurai(x,z,rotY,armorKind='lacquer', opts={}){
     wield.position.set(1.38, 1.58, 0.72);
     wield.rotation.set(0.28, 0, 0.52);
     wield.visible=false;
-    // pickaxe
+    // pickaxe — smaller (was too big)
     pickaxe = new THREE.Group(); body.add(pickaxe);
     const pb=new Batcher();
-    for(let i=0;i<8;i++) pb.add('wood', 0, i*0.9, 0, 0.45,1.0,0.45);
-    for(let x=-2;x<=2;x++) pb.add('steel', x*0.5, 7.4, 0, 0.55,0.55,0.55);
-    pb.add('steel', 0, 7.9, 0, 0.45,1.0,0.85);
+    for(let i=0;i<5;i++) pb.add('wood', 0, i*0.62, 0, 0.32,0.68,0.32);
+    for(let x=-1;x<=1;x++) pb.add('steel', x*0.38, 3.35, 0, 0.38,0.38,0.42);
+    pb.add('steel', 0, 3.72, 0, 0.32,0.68,0.58);
     pb.build(pickaxe,{cast:true,receive:false});
-    pickaxe.position.set(1.4,1.55,0.6);
-    pickaxe.rotation.set(0,0,-0.2);
+    pickaxe.position.set(1.32,1.42,0.55);
+    pickaxe.rotation.set(0,0,-0.18);
+    pickaxe.scale.setScalar(0.88);
     pickaxe.visible=false;
     // block preview (ghost)
     const ggeo=new THREE.BoxGeometry(1,1,1);
@@ -1133,6 +1134,35 @@ function chime(){
   car.connect(g); g.connect(bp); bp.connect(Audio_.master);
   car.start(t); mod.start(t); car.stop(t+3.8); mod.stop(t+3.8);
 }
+// ——— SFX for protagonist actions (synthesized, no samples) ———
+function ensureAudio(){ if(!Audio_.ctx) initAudio(); if(Audio_.ctx.state==='suspended') Audio_.ctx.resume(); }
+function playTone(freq, dur, type='sine', vol=0.18, slide=0){
+  ensureAudio(); const ctx=Audio_.ctx; const t=ctx.currentTime;
+  const o=ctx.createOscillator(); o.type=type; o.frequency.setValueAtTime(freq,t);
+  if(slide) o.frequency.linearRampToValueAtTime(freq+slide, t+dur);
+  const g=ctx.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  // bypass ambient master mute — connect directly to destination so SFX always audible
+  o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+dur);
+}
+function playNoise(dur, vol, filterFreq){
+  ensureAudio(); const ctx=Audio_.ctx; const t=ctx.currentTime;
+  const len=Math.floor(ctx.sampleRate*dur);
+  const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.2);
+  const src=ctx.createBufferSource(); src.buffer=buf;
+  const fl=ctx.createBiquadFilter(); fl.type='lowpass'; fl.frequency.value=filterFreq||1200;
+  const g=ctx.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.9);
+  src.connect(fl); fl.connect(g); g.connect(ctx.destination); src.start(t);
+}
+function sfxStep(isRun){ playNoise(isRun?0.08:0.11, isRun?0.14:0.11, isRun?900:700); playTone(90,0.09,'sine',0.06,-20); }
+function sfxJump(){ playTone(240,0.18,'sine',0.16,180); playNoise(0.07,0.07,1600); }
+function sfxLand(){ playTone(110,0.14,'sine',0.18,-35); playNoise(0.12,0.12,600); }
+function sfxMine(){ playNoise(0.09,0.22,2200); playTone(820,0.08,'square',0.08,-240); }
+function sfxBuild(){ playNoise(0.07,0.14,800); playTone(320,0.12,'sine',0.12,40); }
+function sfxSwing(){ playNoise(0.13,0.11,1800); playTone(440,0.09,'triangle',0.07,120); }
+function sfxCrawl(){ playNoise(0.14,0.07,500); }
+function sfxPickup(){ playTone(660,0.12,'sine',0.12,0); setTimeout(()=>playTone(880,0.12,'sine',0.10,0),90); }
 function toggleAudio(){
   initAudio();
   const ctx=Audio_.ctx;
@@ -1412,9 +1442,11 @@ function updatePlayer(dt,t){
 
   // vertical: gravity + terrain snap
   const groundY = terrainHeight(nx,nz);
+  const wasOnGround = playerState.onGround;
   if(playerState.onGround && wantJump){
     playerState.vy = 10.5;
     playerState.onGround=false;
+    sfxJump();
   }
   if(!playerState.onGround){
     playerState.vy += gravity*dt;
@@ -1423,10 +1455,10 @@ function updatePlayer(dt,t){
       player.root.position.y = groundY;
       playerState.vy=0;
       playerState.onGround=true;
+      if(!wasOnGround) sfxLand();
     }
   } else {
     player.root.position.y = groundY;
-    // step up small bumps
     if(playerState.vy<0) playerState.vy=0;
   }
 
@@ -1443,10 +1475,21 @@ function updatePlayer(dt,t){
     // keep last yaw
   }
 
-  // animation
+  // animation + SFX
   const moving = inputDir.lengthSq()>0.001;
   const isAir = !playerState.onGround;
   const time = t;
+  // footstep / crawl sounds
+  if(moving && !isAir){
+    player._stepTimer = (player._stepTimer||0) - dt;
+    const interval = playerState.isCrawling ? 0.68 : (playerState.isRunning ? 0.28 : 0.44);
+    if(player._stepTimer <= 0){
+      if(playerState.isCrawling) sfxCrawl(); else sfxStep(playerState.isRunning);
+      player._stepTimer = interval;
+    }
+  } else if(!moving){
+    player._stepTimer = 0.12;
+  }
   // breathing baseline
   const breath = Math.sin(time*1.15)*0.055;
   player.body.position.y = breath + (isAir? Math.sin(time*12)*0.02 : 0);
@@ -1559,6 +1602,7 @@ function tryAttack(){
   player._lastAttack = clock ? clock.elapsedTime : performance.now()/1000;
   playerState.attackCooldown=0.45;
   player._attackT=0.45;
+  sfxSwing();
   const origin=player.root.position.clone(); origin.y+=1.2;
   const range=3.8;
   let hit=null, best=Infinity;
@@ -1664,21 +1708,26 @@ function updateHoverVoxel(){
     const pt=getIntersectPlaneY(groundY+0.6);
     let bestFlora=null, bestD=Infinity;
     const camPos=camera.position.clone();
+    const camFwd=new THREE.Vector3(); camera.getWorldDirection(camFwd);
+    const camFwd2=new THREE.Vector3(camFwd.x,0,camFwd.z).normalize();
     for(const f of floraEntities){
       if(f.cut) continue;
       const dPlayer=Math.hypot(f.x-player.root.position.x, f.z-player.root.position.z);
-      if(dPlayer>7.5) continue;
-      const floraPos=new THREE.Vector3(f.x, f.y + (f.h? f.h*0.45 : 1.0), f.z);
-      // distance from ray to flora center (3D)
-      const distToRay=RAY.ray.distanceToPoint(floraPos);
-      const toFlora=new THREE.Vector3().subVectors(floraPos, camPos);
-      const fwd=new THREE.Vector3(); camera.getWorldDirection(fwd);
-      if(toFlora.dot(fwd) < 0) continue; // behind camera
-      const dAlong=toFlora.dot(fwd);
-      if(dAlong>12) continue;
-      if(distToRay < f.radius*0.85 + 0.9 && distToRay < bestD){ bestD=distToRay; bestFlora=f; }
+      if(dPlayer>8.5) continue;
+      const dPoint=Math.hypot(f.x-pt.x, f.z-pt.z);
+      const floraMid=new THREE.Vector3(f.x, f.y + (f.h ? f.h*0.5 : 1.0), f.z);
+      const distToRay=RAY.ray.distanceToPoint(floraMid);
+      const toFlora2=new THREE.Vector3(f.x-camPos.x,0,f.z-camPos.z).normalize();
+      if(toFlora2.dot(camFwd2) < -0.45) continue;
+      const hit2D = dPoint < f.radius+1.7;
+      const hit3D = distToRay < f.radius*0.9 + 1.1;
+      if(!hit2D && !hit3D) continue;
+      const score=Math.min(hit2D?dPoint:Infinity, hit3D?distToRay:Infinity);
+      if(score < bestD){ bestD=score; bestFlora=f; }
     }
-    if(hits.length && (!bestFlora || hits[0].distance < bestD*1.8)){
+    // prioritize whichever is closer to camera
+    let floraCamDist = bestFlora ? camera.position.distanceTo(new THREE.Vector3(bestFlora.x, bestFlora.y+1, bestFlora.z)) : Infinity;
+    if(hits.length && (!bestFlora || hits[0].distance < floraCamDist - 0.15)){
       const h=hits[0];
       hoverVoxel={ pos:h.point.clone(), normal:h.face.normal.clone(), object:h.object,
         placePos: h.point.clone().add(h.face.normal.clone().multiplyScalar(0.6)),
@@ -1760,8 +1809,7 @@ function tryMine(){
     if(f.type==='bamboo'){ addInv('bamboo', rndi(2,3)); addInv('leaf',1); showHudMsg('Chopped bamboo +'+inventory.bamboo+' bamboo'); }
     else if(f.type==='bush'){ addInv('leaf', rndi(2,4)); addInv('woodMid',1); showHudMsg('Cut bush → leaves'); }
     else if(f.type==='pine' || f.type==='sakura'){ addInv('trunk',1); addInv('leaf',2); addInv('plank',1); showHudMsg('Felled '+f.type+' → trunk'); }
-    // visual cut feedback: small puff (reuse chime)
-    if(Audio_.on) chime();
+    sfxMine(); sfxPickup(); if(Audio_.on) chime();
     // schedule slow regrowth (15-35s) — sapling then grows
     const delay = f.type==='bamboo'? 14 + rnd(8) : f.type==='bush'? 12 + rnd(6) : 22 + rnd(12);
     regrowthQueue.push({x:f.x, z:f.z, y:f.y, type:f.type, s:f.s||1, scale:f.scale||1, h:f.h, timer:delay, flora:f});
@@ -1785,16 +1833,16 @@ function tryMine(){
       placedVoxels.splice(idx,1);
       addInv(kind,1);
       showHudMsg('Mined '+kind+' → inventory');
-      if(Audio_.on) chime();
+      sfxMine(); if(Audio_.on) chime();
     }
     return;
   }
   if(hoverVoxel.isTerrain){
-    // mine ground
+    // mine ground — earth & stone
     addInv('dirt',1);
     if(RNG()<0.35) addInv('stone',1);
-    showHudMsg('Dug dirt');
-    if(Audio_.on) chime();
+    showHudMsg('Dug dirt'+(inventory.stone?' + stone':''));
+    sfxMine(); if(Audio_.on) chime();
     // visual dig mark
     const mk=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.12,0.9), MAT.dirt || new THREE.MeshLambertMaterial({color:0x7a5a3a}));
     mk.position.copy(hoverVoxel.pos); mk.position.y -=0.44;
@@ -1825,6 +1873,7 @@ function tryBuild(){
   scene.add(m); worldGroup.add(m);
   placedVoxels.push({mesh:m, x:pos.x,y:pos.y,z:pos.z, kind});
   showHudMsg('Placed '+kind+' — '+inventory[kind]+' left');
+  sfxBuild();
 }
 
 /* Mouse handling + First-person look */
