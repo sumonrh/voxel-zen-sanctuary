@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Voxel Zen Sanctuary — 静寂の山寺</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b1026;
+    font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  canvas{display:block;}
+  .glass{
+    background:rgba(18,20,32,.44);
+    backdrop-filter:blur(14px) saturate(160%);
+    -webkit-backdrop-filter:blur(14px) saturate(160%);
+    border:1px solid rgba(255,255,255,.16);
+    box-shadow:0 8px 32px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.14);
+  }
+  .btn{
+    background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.16);
+    transition:transform .13s ease, background .18s ease, border-color .18s ease;
+    letter-spacing:.02em; white-space:nowrap;
+  }
+  .btn:hover{background:rgba(255,255,255,.17);transform:translateY(-2px);border-color:rgba(255,255,255,.34);}
+  .btn:active{transform:translateY(0);}
+  .btn.on{background:linear-gradient(135deg,rgba(233,92,60,.92),rgba(198,52,42,.92));
+    border-color:rgba(255,196,150,.55);box-shadow:0 0 18px rgba(233,92,60,.45);}
+  .ui{pointer-events:none;}
+  .ui > *{pointer-events:auto;}
+  .fadeout{opacity:0;transition:opacity .55s ease;pointer-events:none!important;}
+  .scroll-x{scrollbar-width:none;}
+  .scroll-x::-webkit-scrollbar{display:none;}
+  .seal{writing-mode:vertical-rl;text-orientation:upright;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spinner{animation:spin 1.1s linear infinite;}
+</style>
+</head>
+<body class="text-white">
+
+<!-- ===================== LOADING VEIL ===================== -->
+<div id="loader" class="fixed inset-0 z-50 flex flex-col items-center justify-center"
+     style="background:radial-gradient(circle at 50% 40%,#1a2340,#080b17 70%)">
+  <div class="spinner w-12 h-12 rounded-sm border-4 border-white/15 border-t-orange-400 mb-6"></div>
+  <div class="text-xl font-semibold tracking-[.35em] text-orange-200">ZEN SANCTUARY</div>
+  <div id="loader-msg" class="mt-2 text-xs tracking-[.25em] text-white/45">CARVING VOXELS…</div>
+</div>
+
+<!-- ===================== OVERLAY UI ===================== -->
+<div id="ui" class="ui fixed inset-0 z-30 select-none">
+
+  <!-- Title card -->
+  <div class="glass absolute top-4 left-4 rounded-2xl px-5 py-4 max-w-[19rem]">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-md grid place-items-center text-lg"
+           style="background:linear-gradient(135deg,#e2533c,#8d1f18);box-shadow:0 0 14px rgba(226,83,60,.5)">⛩</div>
+      <div>
+        <h1 class="text-[15px] font-bold leading-tight tracking-wide">Voxel Zen Sanctuary</h1>
+        <p class="text-[10px] tracking-[.28em] text-orange-200/70 uppercase">Mountain Temple</p>
+      </div>
+    </div>
+    <p class="mt-3 text-[11px] leading-relaxed text-white/60">
+      A Minecraft-style Japanese mountain retreat — pagoda, torii, taiko bridge,
+      samurai guardians and pastoral herds. Play as the Crimson Ronin.
+    </p>
+    <div class="mt-3 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-wider text-white/55">
+      <span class="px-2 py-0.5 rounded bg-white/10 border border-white/10">WASD Move</span>
+      <span class="px-2 py-0.5 rounded bg-white/10 border border-white/10">Shift Run</span>
+      <span class="px-2 py-0.5 rounded bg-white/10 border border-white/10">Space Jump</span>
+      <span class="px-2 py-0.5 rounded bg-white/10 border border-white/10">Ctrl Crawl</span>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="glass absolute top-4 right-4 rounded-2xl px-4 py-3 w-[13rem]">
+    <div class="flex justify-between text-[10px] tracking-widest text-white/45 uppercase"><span>FPS</span><span id="s-fps" class="text-white/80">–</span></div>
+    <div class="flex justify-between text-[10px] tracking-widest text-white/45 uppercase mt-1"><span>Voxels</span><span id="s-vox" class="text-white/80">–</span></div>
+    <div class="flex justify-between text-[10px] tracking-widest text-white/45 uppercase mt-1"><span>Draws</span><span id="s-draw" class="text-white/80">–</span></div>
+    <div class="flex justify-between text-[10px] tracking-widest text-white/45 uppercase mt-1"><span>Health</span><span id="s-hp" class="text-red-300">100</span></div>
+    <div class="flex justify-between text-[10px] tracking-widest text-white/45 uppercase mt-1"><span>Tool</span><span id="s-tool" class="text-orange-200">Katana</span></div>
+    <div class="mt-2 pt-2 border-t border-white/10 flex justify-between text-[10px] tracking-widest uppercase">
+      <span class="text-white/45">Mode</span><span id="s-time" class="text-orange-200">Morning</span>
+    </div>
+  </div>
+
+  <!-- Vertical seal -->
+  <div class="glass absolute top-1/2 -translate-y-1/2 left-4 rounded-xl px-2 py-3 hidden xl:block">
+    <div class="seal text-[13px] tracking-[.35em] text-orange-200/80">静寂の山寺</div>
+  </div>
+
+  <!-- Player HUD -->
+  <div id="hud" class="absolute bottom-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
+    <div id="crosshair" class="w-4 h-4 relative">
+      <div class="absolute left-1/2 top-0 w-0.5 h-4 bg-white/80 -translate-x-1/2"></div>
+      <div class="absolute top-1/2 left-0 h-0.5 w-4 bg-white/80 -translate-y-1/2"></div>
+    </div>
+    <div id="hud-msg" class="text-[11px] tracking-widest text-white/60 bg-black/40 px-2 py-0.5 rounded hidden"></div>
+  </div>
+
+  <!-- Hotbar -->
+  <div id="hotbar" class="absolute left-1/2 -translate-x-1/2 bottom-[5.5rem] flex gap-2">
+    <div data-slot="0" class="hot-slot on w-12 h-12 rounded-lg glass grid place-items-center text-[10px] font-bold border-2 border-orange-400">1<br>⚔️</div>
+    <div data-slot="1" class="hot-slot w-12 h-12 rounded-lg glass grid place-items-center text-[10px] font-bold">2<br>⛏️</div>
+    <div data-slot="2" class="hot-slot w-12 h-12 rounded-lg glass grid place-items-center text-[10px] font-bold">3<br>🧱</div>
+  </div>
+
+  <!-- Control dock -->
+  <div class="glass absolute left-1/2 -translate-x-1/2 bottom-4 rounded-2xl px-4 py-3 w-[min(66rem,calc(100vw-1rem))]">
+    <div class="flex flex-col lg:flex-row lg:items-center gap-3">
+      <div class="flex-1">
+        <div class="text-[9px] tracking-[.3em] text-white/40 uppercase mb-1.5">Time of Day</div>
+        <div class="flex gap-2">
+          <button data-time="morning" class="btn tbtn on flex-1 rounded-lg px-3 py-2 text-[11px] font-semibold">☀️ Morning</button>
+          <button data-time="sunset"  class="btn tbtn flex-1 rounded-lg px-3 py-2 text-[11px] font-semibold">🌅 Sunset</button>
+          <button data-time="night"   class="btn tbtn flex-1 rounded-lg px-3 py-2 text-[11px] font-semibold">🌙 Night</button>
+        </div>
+      </div>
+
+      <div class="hidden lg:block w-px h-12 bg-white/10"></div>
+
+      <div class="flex-[1.7]">
+        <div class="text-[9px] tracking-[.3em] text-white/40 uppercase mb-1.5">Camera Presets</div>
+        <div class="flex gap-2 overflow-x-auto scroll-x">
+          <button data-cam="pagoda"  class="btn cbtn on shrink-0 rounded-lg px-3 py-2 text-[11px] font-semibold">🏯 Pagoda</button>
+          <button data-cam="third"   class="btn cbtn shrink-0 rounded-lg px-3 py-2 text-[11px] font-semibold">🦸 Ronin</button>
+          <button data-cam="samurai" class="btn cbtn shrink-0 rounded-lg px-3 py-2 text-[11px] font-semibold">🗡 Samurai</button>
+          <button data-cam="meadow"  class="btn cbtn shrink-0 rounded-lg px-3 py-2 text-[11px] font-semibold">🐑 Meadow</button>
+          <button data-cam="vista"   class="btn cbtn shrink-0 rounded-lg px-3 py-2 text-[11px] font-semibold">🏔 Vista</button>
+          <button data-cam="bird"    class="btn cbtn shrink-0 rounded-lg px-3 py-2 text-[11px] font-semibold">🕊 Bird's Eye</button>
+        </div>
+      </div>
+
+      <div class="hidden lg:block w-px h-12 bg-white/10"></div>
+
+      <div>
+        <div class="text-[9px] tracking-[.3em] text-white/40 uppercase mb-1.5">Options</div>
+        <div class="flex gap-2">
+          <button id="btn-audio" class="btn rounded-lg px-3 py-2 text-[11px] font-semibold">🔇 Sound</button>
+          <button id="btn-orbit" class="btn rounded-lg px-3 py-2 text-[11px] font-semibold">🎥 Auto</button>
+          <button id="btn-follow" class="btn on rounded-lg px-3 py-2 text-[11px] font-semibold">🦸 Follow</button>
+          <button id="btn-hide"  class="btn rounded-lg px-3 py-2 text-[11px] font-semibold">👁 UI</button>
+        </div>
+      </div>
+    </div>
+    <div class="mt-2 pt-2 border-t border-white/10 text-[10px] text-white/40 text-center">
+      <b class="text-white/70">WASD</b> Move · <b class="text-white/70">Shift</b> Run · <b class="text-white/70">Space</b> Jump · <b class="text-white/70">Ctrl/C</b> Crawl · <b class="text-white/70">LMB</b> Attack/Mine · <b class="text-white/70">RMB</b> Build · <b class="text-white/70">1-3/Q</b> Switch Tool · <b class="text-white/70">E</b> Follow · Drag orbit · Scroll zoom
+    </div>
+  </div>
+</div>
+<button id="ui-toggle" class="glass fixed z-40 hidden bottom-4 left-1/2 -translate-x-1/2 rounded-xl px-4 py-2 text-[11px] font-semibold text-white">👁 Show UI</button>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
