@@ -621,11 +621,11 @@ function buildSamurai(x,z,rotY,armorKind='lacquer', opts={}){
   const legKind = opts.protagonist ? 'crimson' : 'cloth';
   const accent = opts.protagonist ? 'gold' : 'lacquer';
 
-  // hierarchical samurai legs with knee joints — fixed lateral axis (Z) — forward is X
+  // hierarchical samurai legs — forward is +Z (face +Z, mon at +Z), lateral is X
   const samuraiLegs=[];
   for(const s of [-1,1]){
     const hip = new THREE.Group();
-    hip.position.set(0, 6.7*M, s*1.85*M);
+    hip.position.set(s*1.95*M, 6.7*M, 0);
     body.add(hip);
     part(hip, b=>{
       mbox(b,legKind, 0, -1.55, 0, 3.4, 3.65, 3.4);
@@ -1382,30 +1382,30 @@ function updatePlayer(dt,t){
     player.arms[0].rotation.x = lerp(player.arms[0].rotation.x, -0.4, dt*6);
     player.arms[1].rotation.x = lerp(player.arms[1].rotation.x, 0.4, dt*6);
   }
-  // samurai knee walk — proper biped (no sideways flop): hip Z swings sagittal, knee opposite
+  // samurai knee walk — forward +Z: sagittal is Z-Y, axis is X (no sideways flop)
   if(player.legs && player.legs[0]){
     if(moving && !isAir && !playerState.isCrawling){
       const ls = Math.sin(time*(playerState.isRunning?8.6:6.2));
       const rs = -ls;
-      player.legs[0].hip.rotation.z = ls*0.52;
-      player.legs[0].knee.rotation.z = ls>0 ? -ls*1.08 -0.42 : ls*0.13;
-      player.legs[1].hip.rotation.z = rs*0.52;
-      player.legs[1].knee.rotation.z = rs>0 ? -rs*1.08 -0.42 : rs*0.13;
+      player.legs[0].hip.rotation.x = ls*0.52;
+      player.legs[0].knee.rotation.x = ls>0 ? -ls*1.08 -0.42 : ls*0.13;
+      player.legs[1].hip.rotation.x = rs*0.52;
+      player.legs[1].knee.rotation.x = rs>0 ? -rs*1.08 -0.42 : rs*0.13;
     } else if(playerState.isCrawling && moving){
       const cs = Math.sin(time*3.2);
-      player.legs[0].hip.rotation.z = cs*0.22;
-      player.legs[0].knee.rotation.z = 0.62 + cs*0.18;
-      player.legs[1].hip.rotation.z = -cs*0.22;
-      player.legs[1].knee.rotation.z = 0.62 - cs*0.18;
+      player.legs[0].hip.rotation.x = cs*0.22;
+      player.legs[0].knee.rotation.x = 0.62 + cs*0.18;
+      player.legs[1].hip.rotation.x = -cs*0.22;
+      player.legs[1].knee.rotation.x = 0.62 - cs*0.18;
     } else if(isAir){
-      player.legs[0].hip.rotation.z = lerp(player.legs[0].hip.rotation.z, -0.18, dt*6);
-      player.legs[0].knee.rotation.z = lerp(player.legs[0].knee.rotation.z, 0.95, dt*6);
-      player.legs[1].hip.rotation.z = lerp(player.legs[1].hip.rotation.z, -0.18, dt*6);
-      player.legs[1].knee.rotation.z = lerp(player.legs[1].knee.rotation.z, 0.95, dt*6);
+      player.legs[0].hip.rotation.x = lerp(player.legs[0].hip.rotation.x, -0.18, dt*6);
+      player.legs[0].knee.rotation.x = lerp(player.legs[0].knee.rotation.x, 0.95, dt*6);
+      player.legs[1].hip.rotation.x = lerp(player.legs[1].hip.rotation.x, -0.18, dt*6);
+      player.legs[1].knee.rotation.x = lerp(player.legs[1].knee.rotation.x, 0.95, dt*6);
     } else {
       for(const Lg of player.legs){
-        Lg.hip.rotation.z = lerp(Lg.hip.rotation.z, 0, dt*5);
-        Lg.knee.rotation.z = lerp(Lg.knee.rotation.z, 0, dt*5);
+        Lg.hip.rotation.x = lerp(Lg.hip.rotation.x, 0, dt*5);
+        Lg.knee.rotation.x = lerp(Lg.knee.rotation.x, 0, dt*5);
       }
     }
   }
@@ -1802,18 +1802,17 @@ function animateActors(t,dt){
         s.root.position.x += Math.sin(dir)*sp;
         s.root.position.z += Math.cos(dir)*sp;
         s.root.position.y = terrainHeight(s.root.position.x, s.root.position.z);
-        // biped walk — researched human gait: stance 60% straight, swing 40% flexed
-        // hip swings ±30° (0.52 rad), knee flexes ~65° on swing only (opposite sign to hip)
+        // biped walk — researched human gait: sagittal Z-Y plane, axis X (forward +Z)
         const st=Math.sin(t*6.2);
         const hipL = st*0.48, hipR = -st*0.48;
         if(s.legs && s.legs[0]){
-          s.legs[0].hip.rotation.z = hipL;
-          s.legs[0].knee.rotation.z = hipL>0 ? -hipL*1.15 -0.52 : hipL*0.14;
-          s.legs[1].hip.rotation.z = hipR;
-          s.legs[1].knee.rotation.z = hipR>0 ? -hipR*1.15 -0.52 : hipR*0.14;
+          s.legs[0].hip.rotation.x = hipL;
+          s.legs[0].knee.rotation.x = hipL>0 ? -hipL*1.15 -0.52 : hipL*0.14;
+          s.legs[1].hip.rotation.x = hipR;
+          s.legs[1].knee.rotation.x = hipR>0 ? -hipR*1.15 -0.52 : hipR*0.14;
         }
         s.body.position.y += Math.abs(st)*0.05;
-      } else if(dist<=2.4 && t%1.2<0.05){
+       } else if(dist<=2.4 && t%1.2<0.05){
         // attack player occasionally
         playerState.hp-=1;
         showHudMsg('Hit by samurai! HP '+Math.round(playerState.hp));
@@ -1825,11 +1824,11 @@ function animateActors(t,dt){
           showHudMsg('You were defeated! Refresh to restart');
         }
       } else {
-        // idle: straighten knees
+        // idle: straighten knees (X axis for +Z forward)
         if(s.legs && s.legs[0]){
           for(const Lg of s.legs){
-            Lg.hip.rotation.z = lerp(Lg.hip.rotation.z, 0, dt*4);
-            Lg.knee.rotation.z = lerp(Lg.knee.rotation.z, 0, dt*4);
+            Lg.hip.rotation.x = lerp(Lg.hip.rotation.x, 0, dt*4);
+            Lg.knee.rotation.x = lerp(Lg.knee.rotation.x, 0, dt*4);
           }
         }
       }
@@ -1837,8 +1836,8 @@ function animateActors(t,dt){
       // no player: idle
       if(s.legs && s.legs[0]){
         for(const Lg of s.legs){
-          Lg.hip.rotation.z = lerp(Lg.hip.rotation.z, 0, dt*4);
-          Lg.knee.rotation.z = lerp(Lg.knee.rotation.z, 0, dt*4);
+          Lg.hip.rotation.x = lerp(Lg.hip.rotation.x, 0, dt*4);
+          Lg.knee.rotation.x = lerp(Lg.knee.rotation.x, 0, dt*4);
         }
       }
     }
