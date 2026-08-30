@@ -713,19 +713,23 @@ function buildSamurai(x,z,rotY,armorKind='lacquer', opts={}){
     mbox(b,'gold',  0, 7.4, 2.6, 2.0, 1.2, 0.5);
   });
 
-  // wielded sword for protagonist (visible when attacking)
+  // wielded sword for protagonist (visible when attacking) — proportioned to body (~68% original)
   let wield=null, pickaxe=null, blockPreview=null;
   if(opts.protagonist){
     wield = new THREE.Group(); body.add(wield);
-    // Initially katana in hand offset - will animate
     const wb = new Batcher();
-    // blade
-    for(let i=0;i<12;i++) wb.add('steel', 0, 0.5+i*0.95, 0, 0.35,1.0,0.35);
-    wb.add('gold', 0, 0.2, 0, 1.2,0.5,1.2);
-    wb.add('dark', 0, -0.6, 0, 0.9,1.6,0.9);
+    // blade — shortened to 7.5 units (~samurai height 5.2, katana ~3.9) vs previous 11.4
+    for(let i=0;i<8;i++) wb.add('steel', 0, 0.5+i*0.62, 0, 0.30,0.68,0.30);
+    // tip taper
+    wb.add('steel', 0, 0.5+8*0.62, 0, 0.18,0.45,0.18);
+    wb.add('gold', 0, 0.18, 0, 1.05,0.42,1.05);
+    wb.add('dark', 0, -0.58, 0, 0.82,1.35,0.82);
+    // cloth wrap on handle
+    for(let i=0;i<2;i++) wb.add('crimson', 0, -0.08-i*0.32, 0, 0.86,0.22,0.86);
     wb.build(wield,{cast:true,receive:false});
-    wield.position.set(1.4, 1.65, 0.9);
-    wield.rotation.set(0,0, -Math.PI/2);
+    // held upwards at angle — tomb-raider samurai stance: blade up ~35° from vertical, leaning forward
+    wield.position.set(1.38, 1.58, 0.72);
+    wield.rotation.set(0.28, 0, 0.52);
     wield.visible=false;
     // pickaxe
     pickaxe = new THREE.Group(); body.add(pickaxe);
@@ -1077,7 +1081,10 @@ const camTween={active:false,t:0,dur:1.7,
   p0:new THREE.Vector3(),p1:new THREE.Vector3(),
   t0:new THREE.Vector3(),t1:new THREE.Vector3()};
 function gotoCam(key){
-  if(key==='third' && player){ startFollowCam(); return; }
+  if(key==='third' && player){ setCameraMode('third'); return; }
+  if(key==='first' && player){ setCameraMode('first'); return; }
+  // leaving follow modes for preset cams
+  setCameraMode('free');
   const c=CAMS[key]; if(!c) return;
   camTween.p0.copy(camera.position);
   camTween.t0.copy(controls.target);
@@ -1094,17 +1101,36 @@ function updateCamTween(dt){
   controls.target.lerpVectors(camTween.t0,camTween.t1,e);
   if(camTween.t>=1) camTween.active=false;
 }
-let followMode=true;
-function startFollowCam(){
-  followMode=true;
-  document.getElementById('btn-follow')?.classList.add('on');
-  document.querySelectorAll('.cbtn').forEach(b=>b.classList.toggle('on', b.dataset.cam==='third'));
+let followMode=true; // legacy alias for third-person
+let cameraMode='third'; // 'third' | 'first' | 'free'
+function setCameraMode(mode){
+  cameraMode=mode;
+  followMode = (mode==='third');
+  // UI toggles
+  document.getElementById('btn-follow')?.classList.toggle('on', mode==='third');
+  document.getElementById('btn-first')?.classList.toggle('on', mode==='first');
+  document.querySelectorAll('.cbtn').forEach(b=>{
+    const isThird = b.dataset.cam==='third';
+    const isFirst = b.dataset.cam==='first';
+    b.classList.toggle('on', (mode==='third'&&isThird) || (mode==='first'&&isFirst) || (mode==='free'&&false));
+    if(mode!=='third' && mode!=='first' && b.dataset.cam!==mode) b.classList.remove('on');
+  });
+  // controls handling
+  if(mode==='first'){
+    controls.enabled=false;
+    if(player && player.head) player.head.visible=false;
+    showHudMsg('First Person');
+  } else {
+    controls.enabled=true;
+    if(player && player.head) player.head.visible=true;
+    if(mode==='third') showHudMsg('Third Person — Tomb Raider high');
+    else showHudMsg('Free Camera');
+  }
   camTween.active=false;
 }
-function stopFollowCam(){
-  followMode=false;
-  document.getElementById('btn-follow')?.classList.remove('on');
-}
+function startFollowCam(){ setCameraMode('third'); }
+function stopFollowCam(){ setCameraMode('free'); }
+function startFirstPerson(){ setCameraMode('first'); }
 
 /* =======================================================================
    INPUT + PLAYER CONTROLLER
@@ -1127,9 +1153,19 @@ function setTool(i){
   document.querySelectorAll('.hot-slot').forEach((el,idx)=> el.classList.toggle('on', idx===toolIndex));
   document.getElementById('s-tool').textContent = TOOLS[toolIndex];
   if(player){
-    player.wield.visible = toolIndex===0;
-    player.pickaxe.visible = toolIndex===1;
-    player.blockPreview.visible = toolIndex===2 && !!hoverVoxel;
+    if(toolIndex===0){
+      // katana selected but sheathed by default — will be drawn on first swing, auto-sheathed after idle
+      if(player.wield) player.wield.visible = false;
+      if(player.katana) player.katana.visible = true;
+      // do not auto-draw; wait for attack. If recently drawn, keep visible until timer
+      if(player._lastAttack!==undefined && clock && (clock.elapsedTime - player._lastAttack < 2.8)){
+        if(player.wield) player.wield.visible = true;
+      }
+    } else {
+      if(player.wield) player.wield.visible = false;
+    }
+    if(player.pickaxe) player.pickaxe.visible = toolIndex===1;
+    if(player.blockPreview) player.blockPreview.visible = toolIndex===2 && !!hoverVoxel;
   }
   showHudMsg('Tool: '+TOOLS[toolIndex]);
 }
@@ -1181,9 +1217,9 @@ function updatePlayer(dt,t){
   const accel=28;
   const gravity=-28;
 
-  // inputs
+  // inputs — A/D swapped per user request (previously flipped)
   const forward = (Keys['KeyW']||Keys['ArrowUp']?1:0) + (Keys['KeyS']||Keys['ArrowDown']?-1:0);
-  const strafe  = (Keys['KeyA']? -1:0) + (Keys['KeyD']? 1:0);
+  const strafe  = (Keys['KeyA']? 1:0) + (Keys['KeyD']? -1:0);
   const wantRun = !!Keys['ShiftLeft']||!!Keys['ShiftRight'];
   const wantCrawl = !!Keys['ControlLeft']||!!Keys['ControlRight']||!!Keys['KeyC'];
   const wantJump = !!Keys['Space'];
@@ -1292,17 +1328,23 @@ function updatePlayer(dt,t){
     player.arms[0].rotation.x = lerp(player.arms[0].rotation.x, -0.4, dt*6);
     player.arms[1].rotation.x = lerp(player.arms[1].rotation.x, 0.4, dt*6);
   }
-  // weapon bob
+  // weapon bob — idle upward angle ~0.52 rad from vertical
   if(player.wield){
     if(toolIndex===0){
       const atk = player._attackT||0;
       if(atk>0){
-        player.wield.rotation.z = lerp(player.wield.rotation.z, -2.1, dt*18);
-        player.wield.rotation.x = Math.sin(atk*14)*0.5;
+        // slash: rotate forward and slightly down
+        player.wield.rotation.z = lerp(player.wield.rotation.z, -0.95, dt*18);
+        player.wield.rotation.x = 0.28 + Math.sin(atk*14)*0.72;
+        player.wield.rotation.y = Math.sin(atk*14*0.7)*0.28;
       } else if(moving){
-        player.wield.rotation.z = -1.57 + Math.sin(time*(playerState.isRunning?9:6))*0.18;
+        // gentle sway while moving, base 0.52
+        player.wield.rotation.z = 0.52 + Math.sin(time*(playerState.isRunning?9:6))*0.14;
+        player.wield.rotation.x = 0.28 + Math.sin(time*(playerState.isRunning?9:6)*0.9)*0.08;
       } else {
-        player.wield.rotation.z = lerp(player.wield.rotation.z, -1.57, dt*6);
+        player.wield.rotation.z = lerp(player.wield.rotation.z, 0.52, dt*6);
+        player.wield.rotation.x = lerp(player.wield.rotation.x, 0.28, dt*6);
+        player.wield.rotation.y = lerp(player.wield.rotation.y, 0, dt*6);
       }
     }
   }
@@ -1319,6 +1361,13 @@ function updatePlayer(dt,t){
   if(player._attackT!==undefined && player._attackT<=0) player._attackT=0;
   if(player._mineT) player._mineT-=dt;
   if(player._mineT!==undefined && player._mineT<=0) player._mineT=0;
+  // auto-sheathe katana after ~2.8s idle (sword returns to saya)
+  if(toolIndex===0 && player && player.wield && player.wield.visible && player._lastAttack!==undefined){
+    if(t - player._lastAttack > 2.8 && (player._attackT||0)===0){
+      player.wield.visible = false;
+      // subtle sheathe feedback could be added
+    }
+  }
 
   // UI
   const hpEl=document.getElementById('s-hp');
@@ -1333,6 +1382,13 @@ function tryAttack(){
   if(!player || player.dead) return;
   if(playerState.attackCooldown>0) return;
   if(toolIndex!==0) return; // only katana attacks
+  // draw sword if sheathed
+  if(player.wield && !player.wield.visible){
+    player.wield.visible = true;
+    // play unsheathe snap
+    player.wield.rotation.set(0.28,0,0.52);
+  }
+  player._lastAttack = clock ? clock.elapsedTime : performance.now()/1000;
   playerState.attackCooldown=0.45;
   player._attackT=0.45;
   const origin=player.root.position.clone(); origin.y+=1.2;
@@ -1520,18 +1576,53 @@ function tryBuild(){
   showHudMsg('Placed '+kind);
 }
 
-/* Mouse handling */
+/* Mouse handling + First-person look */
+let fpDragging=false, fpStartX=0, fpStartY=0, fpStartYaw=0, fpStartPitch=0;
 renderer.domElement.addEventListener('mousedown',e=>{
   if(e.button===0) {mouseDownLeft=true; if(toolIndex===0) tryAttack(); else if(toolIndex===1) tryMine(); }
   if(e.button===2) {mouseDownRight=true; if(toolIndex===2) tryBuild(); }
+  // start first-person drag
+  if(cameraMode==='first'){
+    fpDragging=true; fpStartX=e.clientX; fpStartY=e.clientY;
+    fpStartYaw=playerState.yaw; fpStartPitch=playerState.pitch||-0.06;
+    // prevent OrbitControls from stealing drag
+    controls.enabled=false;
+  }
 });
 renderer.domElement.addEventListener('mouseup',e=>{
   if(e.button===0) mouseDownLeft=false;
   if(e.button===2) mouseDownRight=false;
+  fpDragging=false;
 });
+renderer.domElement.addEventListener('mousemove',e=>{
+  if(cameraMode==='first' && fpDragging && player){
+    const dx=(e.clientX - fpStartX)*0.0042;
+    const dy=(e.clientY - fpStartY)*0.0042;
+    playerState.yaw = fpStartYaw - dx;
+    player.yaw = playerState.yaw;
+    player.root.rotation.y = playerState.yaw;
+    playerState.pitch = clamp(fpStartPitch + dy, -1.22, 1.18);
+  }
+});
+renderer.domElement.addEventListener('mouseleave',()=>{ fpDragging=false; });
 renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+// wheel in first-person tweaks pitch slightly
+renderer.domElement.addEventListener('wheel',e=>{
+  if(cameraMode==='first'){
+    playerState.pitch = clamp((playerState.pitch||-0.06) + e.deltaY*0.00055, -1.22, 1.18);
+  }
+}, {passive:true});
 addEventListener('keydown',e=>{
-  if(e.code==='KeyE'){ followMode=!followMode; document.getElementById('btn-follow')?.classList.toggle('on',followMode); showHudMsg(followMode?'Follow cam ON':'Free cam'); }
+  if(e.code==='KeyE'){
+    // cycle Third -> Free -> Third (E is quick free toggle)
+    if(cameraMode==='third') setCameraMode('free');
+    else setCameraMode('third');
+  }
+  if(e.code==='KeyV' || e.code==='KeyF'){
+    // V/F cycles Third -> First -> Third
+    if(cameraMode==='first') setCameraMode('third');
+    else setCameraMode('first');
+  }
 });
 
 /* =======================================================================
@@ -1553,9 +1644,13 @@ function wireUI(){
   });
   const followBtn=document.getElementById('btn-follow');
   if(followBtn) followBtn.addEventListener('click',()=>{
-    followMode=!followMode;
-    followBtn.classList.toggle('on',followMode);
-    showHudMsg(followMode?'Follow ON':'Follow OFF');
+    if(cameraMode==='third') setCameraMode('free');
+    else setCameraMode('third');
+  });
+  const firstBtn=document.getElementById('btn-first');
+  if(firstBtn) firstBtn.addEventListener('click',()=>{
+    if(cameraMode==='first') setCameraMode('third');
+    else setCameraMode('first');
   });
   const ui=document.getElementById('ui'), tog=document.getElementById('ui-toggle');
   const hideBtn=document.getElementById('btn-hide');
@@ -1735,20 +1830,42 @@ function animateActors(t,dt){
   }
   // player update
   updatePlayer(dt,t);
-  // follow camera
-  if(followMode && player && !camTween.active){
+  // Tomb Raider style third-person + first-person
+  if(cameraMode==='third' && player && !camTween.active){
     const targetPos=player.root.position.clone();
-    targetPos.y+= playerState.isCrawling?1.2:2.8;
-    // camera offset behind player (relative to yaw)
-    const dist = playerState.isCrawling? 9 : (playerState.isRunning? 11 : 13);
-    const height = playerState.isCrawling? 3.2 : 5.5;
+    // aim at chest/head, slightly lower than before to increase downward angle
+    targetPos.y+= playerState.isCrawling?0.85:2.15;
+    // Tomb Raider: higher, tighter, more vertical — raised from 5.5 to 7.4
+    const dist = playerState.isCrawling? 6.2 : (playerState.isRunning? 9.2 : 8.8);
+    const height = playerState.isCrawling? 3.0 : (playerState.isRunning? 7.9 : 7.45);
     const yaw = player.yaw;
     const camX = targetPos.x - Math.sin(yaw)*dist;
     const camZ = targetPos.z - Math.cos(yaw)*dist;
     const camY = targetPos.y + height;
     const desired = new THREE.Vector3(camX, camY, camZ);
-    camera.position.lerp(desired, clamp(dt*3.2,0,1));
-    controls.target.lerp(targetPos, clamp(dt*4.5,0,1));
+    camera.position.lerp(desired, clamp(dt*3.4,0,1));
+    controls.target.lerp(targetPos, clamp(dt*4.8,0,1));
+  } else if(cameraMode==='first' && player && !camTween.active){
+    // First-person: eye inside head (head hidden), look along yaw/pitch
+    const eye = player.root.position.clone();
+    eye.y += playerState.isCrawling? 0.88 : 2.78;
+    // nudge forward to avoid clipping with invisible head
+    const fwd = new THREE.Vector3(Math.sin(player.yaw),0,Math.cos(player.yaw));
+    eye.addScaledVector(fwd, 0.18);
+    const pitch = playerState.pitch ?? -0.06;
+    const dir = new THREE.Vector3(
+      Math.sin(player.yaw)*Math.cos(pitch),
+      Math.sin(pitch),
+      Math.cos(player.yaw)*Math.cos(pitch)
+    );
+    const target = eye.clone().addScaledVector(dir, 24);
+    // snap camera, bypass controls lerp for instant response
+    camera.position.lerp(eye, clamp(dt*12,0,1));
+    // when controls disabled, we set look directly; still lerp target for smoothness
+    const curDir = new THREE.Vector3(); camera.getWorldDirection(curDir);
+    // use controls.target as look target even though controls disabled — manual lookAt
+    camera.lookAt(target);
+    controls.target.copy(target);
   }
 }
 
