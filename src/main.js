@@ -48,7 +48,7 @@ class Batcher{
    SCENE / RENDERER / CAMERA
    ======================================================================= */
 const scene   = new THREE.Scene();
-const camera  = new THREE.PerspectiveCamera(52, innerWidth/innerHeight, 0.5, 2600);
+const camera  = new THREE.PerspectiveCamera(64, innerWidth/innerHeight, 0.15, 2600);
 camera.position.set(62,44,110);
 
 const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
@@ -1830,14 +1830,13 @@ function animateActors(t,dt){
   }
   // player update
   updatePlayer(dt,t);
-  // Tomb Raider style third-person + first-person
+  // Tomb Raider style third-person (wide & far) + first-person (outside helmet)
   if(cameraMode==='third' && player && !camTween.active){
     const targetPos=player.root.position.clone();
-    // aim at chest/head, slightly lower than before to increase downward angle
-    targetPos.y+= playerState.isCrawling?0.85:2.15;
-    // Tomb Raider: higher, tighter, more vertical — raised from 5.5 to 7.4
-    const dist = playerState.isCrawling? 6.2 : (playerState.isRunning? 9.2 : 8.8);
-    const height = playerState.isCrawling? 3.0 : (playerState.isRunning? 7.9 : 7.45);
+    targetPos.y+= playerState.isCrawling?0.85:2.05;
+    // Wider & further behind: FOV 64 + dist 14.5 so user sees far ahead
+    const dist = playerState.isCrawling? 7.5 : (playerState.isRunning? 16.0 : 14.8);
+    const height = playerState.isCrawling? 3.2 : (playerState.isRunning? 9.2 : 8.7);
     const yaw = player.yaw;
     const camX = targetPos.x - Math.sin(yaw)*dist;
     const camZ = targetPos.z - Math.cos(yaw)*dist;
@@ -1846,24 +1845,21 @@ function animateActors(t,dt){
     camera.position.lerp(desired, clamp(dt*3.4,0,1));
     controls.target.lerp(targetPos, clamp(dt*4.8,0,1));
   } else if(cameraMode==='first' && player && !camTween.active){
-    // First-person: eye inside head (head hidden), look along yaw/pitch
+    // First-person: camera just outside face armor so view is not blocked (head is hidden)
     const eye = player.root.position.clone();
-    eye.y += playerState.isCrawling? 0.88 : 2.78;
-    // nudge forward to avoid clipping with invisible head
+    // head eye level is ~4.9 above root (scale 1.18) ; previously 2.78 was chest and caused clipping
+    eye.y += playerState.isCrawling? 1.12 : 4.92;
+    // push forward beyond menpo/helmet (face at ~0.6) — 0.72 clears armor
     const fwd = new THREE.Vector3(Math.sin(player.yaw),0,Math.cos(player.yaw));
-    eye.addScaledVector(fwd, 0.18);
-    const pitch = playerState.pitch ?? -0.06;
+    eye.addScaledVector(fwd, playerState.isCrawling? 0.42 : 0.72);
+    const pitch = playerState.pitch ?? -0.04;
     const dir = new THREE.Vector3(
       Math.sin(player.yaw)*Math.cos(pitch),
       Math.sin(pitch),
       Math.cos(player.yaw)*Math.cos(pitch)
     );
-    const target = eye.clone().addScaledVector(dir, 24);
-    // snap camera, bypass controls lerp for instant response
-    camera.position.lerp(eye, clamp(dt*12,0,1));
-    // when controls disabled, we set look directly; still lerp target for smoothness
-    const curDir = new THREE.Vector3(); camera.getWorldDirection(curDir);
-    // use controls.target as look target even though controls disabled — manual lookAt
+    const target = eye.clone().addScaledVector(dir, 28);
+    camera.position.lerp(eye, clamp(dt*14,0,1));
     camera.lookAt(target);
     controls.target.copy(target);
   }
