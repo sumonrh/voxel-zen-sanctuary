@@ -525,6 +525,7 @@ function bambooStalk(x,z){
     }
   }
   B.add('leaf',x,gy+h+0.3,z,1.1,0.6,1.1);
+  floraEntities.push({x,z,y:gy, type:'bamboo', radius:1.2, h, cut:false});
 }
 function bambooGrove(cx,cz,r,n){
   for(let i=0;i<n;i++){
@@ -544,6 +545,7 @@ function sakuraTree(x,z,scale=1){
   }
   blossomCluster(x,gy+h+1.2,z,rnd(4.4,3.2)*scale);
   petalSources.push({x,y:gy+h,z,r:4.5*scale});
+  floraEntities.push({x,z,y:gy, type:'sakura', radius:3.2*scale, h, scale, cut:false});
 }
 function blossomCluster(cx,cy,cz,r){
   const R=Math.ceil(r);
@@ -566,6 +568,7 @@ function pineTree(x,z){
     }
     r*=0.72;
   }
+  floraEntities.push({x,z,y:gy, type:'pine', radius:3.8, h, cut:false});
 }
 function bush(x,z,s=1){
   const gy=terrainHeight(x,z), R=Math.ceil(1.8*s);
@@ -573,6 +576,7 @@ function bush(x,z,s=1){
     if(Math.hypot(dx,dy*1.3,dz)>1.8*s) continue;
     B.add(RNG()<0.28?'leafDark':'leaf', x+dx*0.75, gy+0.4+dy*0.75, z+dz*0.75, 0.8,0.8,0.8);
   }
+  floraEntities.push({x,z,y:gy, type:'bush', radius:1.6*s+0.6, s, cut:false});
 }
 function steppingPath(x0,z0,x1,z1,n){
   for(let i=0;i<=n;i++){
@@ -597,6 +601,46 @@ function zenGarden(cx,cz,w,d){
   }
 }
 const petalSources=[];
+const floraEntities=[]; // {x,z,y,type,group?, radius, cut:false, regrowTimer:0}
+const regrowthQueue=[]; // {x,z,type,s, timer}
+const pendingAnimalBabies=[]; // {timer, type, x,z}
+function spawnRegrowth(entry){
+  // sapling stage — small visible Group that grows to adult
+  const g=new THREE.Group();
+  const gy=terrainHeight(entry.x, entry.z);
+  g.position.set(entry.x, gy, entry.z);
+  worldGroup.add(g);
+  const b=new Batcher();
+  if(entry.type==='bamboo'){
+    b.column('bamboo', 0,0,0,1.2,0.55,0.55);
+    b.add('leaf', 0,1.3,0, 0.9,0.45,0.9);
+  } else if(entry.type==='bush'){
+    const s=entry.s||1;
+    b.add('leaf', 0,0.5,0, 1.1*s,0.9*s,1.1*s);
+  } else if(entry.type==='pine'){
+    b.column('trunk', 0,0,0,1.4,1.1,1.1);
+    b.add('leaf', 0,1.6,0, 1.8,1.2,1.8);
+  } else { // sakura
+    b.column('trunk', 0,0,0,1.1,1.1,1.1);
+    b.add('sakura', 0,1.4,0, 1.2,1.0,1.2);
+  }
+  b.build(g,{cast:true,receive:false});
+  g.scale.setScalar(0.28);
+  g.userData.grow=0;
+  // add to flora for future mining (sapling)
+  const newFlora={x:entry.x, z:entry.z, y:gy, type:entry.type, radius:entry.type==='bamboo'?1.1:1.4, h:1.2, s:entry.s||1, scale:entry.scale||1, cut:false, group:g, isSapling:true};
+  floraEntities.push(newFlora);
+  // animate growth over 10s
+  const start=performance.now();
+  const grow=()=>{
+    const t=(performance.now()-start)/10000;
+    if(t>=1){ g.scale.setScalar(1); g.userData.grow=1; return; }
+    g.scale.setScalar(0.28 + t*0.72);
+    requestAnimationFrame(grow);
+  };
+  grow();
+  setTimeout(()=> showHudMsg(entry.type+' regrown 🌱'), 10000);
+}
 
 /* =======================================================================
    MICRO-VOXEL ACTORS
@@ -1234,6 +1278,49 @@ function showHudMsg(msg, dur=1200){
   el._t=setTimeout(()=>el.classList.add('hidden'), dur);
 }
 
+// Inventory — Minecraft style
+const inventory = { plank: 14, stone: 10, woodMid: 0, trunk: 0, bamboo: 0, leaf: 0, dirt: 8, grass: 4 };
+const RECIPES = [
+  { id:'plank4', out:'plank', n:4, need:{ trunk:1 }, label:'1 trunk → 4 planks' },
+  { id:'plankBamboo', out:'plank', n:2, need:{ bamboo:2 }, label:'2 bamboo → 2 planks' },
+  { id:'sticks', out:'woodMid', n:4, need:{ plank:2 }, label:'2 planks → 4 sticks' },
+  { id:'stonePick', out:'stone', n:4, need:{ stone:3, woodMid:2 }, label:'3 stone +2 sticks → pickaxe repair (+4 stone)' },
+  { id:'craftBench', out:'plank', n:2, need:{ leaf:4 }, label:'4 leaves → 2 planks' },
+];
+function addInv(k,n=1){ inventory[k]=(inventory[k]||0)+n; updateInvUI(); }
+function hasInv(need){ for(const k in need) if((inventory[k]||0) < need[k]) return false; return true; }
+function consumeInv(need){ for(const k in need) inventory[k]-=need[k]; updateInvUI(); }
+function updateInvUI(){
+  const grid=document.getElementById('inv-grid'); if(!grid) return;
+  const icons={ plank:'🪵', stone:'🪨', woodMid:'🥢', trunk:'🌳', bamboo:'🎋', leaf:'🍃', dirt:'🟫', grass:'🟩' };
+  grid.innerHTML='';
+  for(const [k,v] of Object.entries(inventory)){
+    const d=document.createElement('div');
+    d.className='bg-white/10 rounded px-1.5 py-1 flex justify-between border border-white/10';
+    d.innerHTML=`<span>${icons[k]||'⬜'} ${k}</span><span class="font-bold">${v}</span>`;
+    grid.appendChild(d);
+  }
+}
+function renderCrafting(){
+  const list=document.getElementById('craft-list'); if(!list) return;
+  list.innerHTML='';
+  RECIPES.forEach(r=>{
+    const can=hasInv(r.need);
+    const btn=document.createElement('button');
+    btn.className=`btn ${can?'':'opacity-45'} w-full text-left rounded-lg px-3 py-2.5 text-[11px] flex justify-between items-center`;
+    const needStr=Object.entries(r.need).map(([k,v])=>`${v} ${k}`).join(' + ');
+    btn.innerHTML=`<span>${needStr} → ${r.n} ${r.out}</span><span>${can?'✓ Craft':'✗ Need'}</span>`;
+    btn.disabled=!can;
+    btn.onclick=()=>{
+      if(!hasInv(r.need)) return;
+      consumeInv(r.need); addInv(r.out, r.n); renderCrafting();
+      showHudMsg('Crafted '+r.n+' '+r.out+' ✨');
+      if(Audio_.on) chime();
+    };
+    list.appendChild(btn);
+  });
+}
+
 // Player physics
 const playerState={
   vy:0,
@@ -1276,7 +1363,7 @@ function updatePlayer(dt,t){
   const forward = (Keys['KeyW']||Keys['ArrowUp']?1:0) + (Keys['KeyS']||Keys['ArrowDown']?-1:0);
   const strafe  = (Keys['KeyA']? 1:0) + (Keys['KeyD']? -1:0);
   const wantRun = !!Keys['ShiftLeft']||!!Keys['ShiftRight'];
-  const wantCrawl = !!Keys['ControlLeft']||!!Keys['ControlRight']||!!Keys['KeyC'];
+  const wantCrawl = !!Keys['ControlLeft']||!!Keys['ControlRight'];
   const wantJump = !!Keys['Space'];
 
   playerState.isCrawling = wantCrawl;
@@ -1541,6 +1628,11 @@ function killEntity(ent){
   if(ent.type){
     const idx=animals.indexOf(ent);
     if(idx>=0) animals.splice(idx,1);
+    // replenish slowly with baby (18-26s) that grows to adult
+    if(ent.type==='sheep' || ent.type==='alpaca'){
+      pendingAnimalBabies.push({timer: 18 + rnd(10), type: ent.type});
+      showHudMsg(ent.type+' will replenish — baby in ~20s');
+    }
   } else {
     // samurai enemy: keep but dead
   }
@@ -1564,44 +1656,83 @@ function updateHoverVoxel(){
     return;
   }
   RAY.setFromCamera(new THREE.Vector2(0,0), camera);
-  // intersect terrain approximated + placed voxels + world
-  const candidates=[];
-  // terrain: sample groundY at ray intersection with plane at player ground
-  // Use raycast against placed voxels first
-  const voxelMeshes=placedVoxels.map(v=>v.mesh);
-  const hits=RAY.intersectObjects(voxelMeshes, false);
-  if(hits.length){
-    const h=hits[0];
-    hoverVoxel={ pos:h.point.clone(), normal:h.face.normal.clone(), object:h.object,
-      placePos: h.point.clone().add(h.face.normal.clone().multiplyScalar(0.6)),
-      isVoxel:true, hit:h };
-    // transform placePos to grid
-    hoverVoxel.placePos.set(
-      Math.round(hoverVoxel.placePos.x/VOXEL_SIZE)*VOXEL_SIZE,
-      Math.round(hoverVoxel.placePos.y/VOXEL_SIZE)*VOXEL_SIZE,
-      Math.round(hoverVoxel.placePos.z/VOXEL_SIZE)*VOXEL_SIZE
-    );
-    hoverVoxel.pos.set(
-      Math.round(h.object.position.x),
-      Math.round(h.object.position.y),
-      Math.round(h.object.position.z)
-    );
-  } else {
-    // ground plane hover
+  if(toolIndex===1){
+    // pickaxe: prioritize placed voxels, then flora, then terrain
+    const voxelMeshes=placedVoxels.map(v=>v.mesh);
+    const hits=RAY.intersectObjects(voxelMeshes, false);
     const groundY=terrainHeight(player.root.position.x, player.root.position.z);
     const pt=getIntersectPlaneY(groundY+0.6);
-    const camDist=pt.distanceTo(camera.position);
-    if(camDist>12){
-      hoverVoxel=null;
-      if(player.blockPreview) player.blockPreview.visible=false;
-      return;
+    let bestFlora=null, bestD=Infinity;
+    const camPos=camera.position.clone();
+    for(const f of floraEntities){
+      if(f.cut) continue;
+      const dPlayer=Math.hypot(f.x-player.root.position.x, f.z-player.root.position.z);
+      if(dPlayer>7.5) continue;
+      const floraPos=new THREE.Vector3(f.x, f.y + (f.h? f.h*0.45 : 1.0), f.z);
+      // distance from ray to flora center (3D)
+      const distToRay=RAY.ray.distanceToPoint(floraPos);
+      const toFlora=new THREE.Vector3().subVectors(floraPos, camPos);
+      const fwd=new THREE.Vector3(); camera.getWorldDirection(fwd);
+      if(toFlora.dot(fwd) < 0) continue; // behind camera
+      const dAlong=toFlora.dot(fwd);
+      if(dAlong>12) continue;
+      if(distToRay < f.radius*0.85 + 0.9 && distToRay < bestD){ bestD=distToRay; bestFlora=f; }
     }
-    hoverVoxel={
-      pos: new THREE.Vector3(Math.round(pt.x), Math.round(groundY+0.6), Math.round(pt.z)),
-      placePos: new THREE.Vector3(Math.round(pt.x), Math.round(groundY+0.6), Math.round(pt.z)),
-      normal: new THREE.Vector3(0,1,0),
-      isVoxel:false
-    };
+    if(hits.length && (!bestFlora || hits[0].distance < bestD*1.8)){
+      const h=hits[0];
+      hoverVoxel={ pos:h.point.clone(), normal:h.face.normal.clone(), object:h.object,
+        placePos: h.point.clone().add(h.face.normal.clone().multiplyScalar(0.6)),
+        isVoxel:true, isFlora:false, hit:h };
+      hoverVoxel.placePos.set(
+        Math.round(hoverVoxel.placePos.x/VOXEL_SIZE)*VOXEL_SIZE,
+        Math.round(hoverVoxel.placePos.y/VOXEL_SIZE)*VOXEL_SIZE,
+        Math.round(hoverVoxel.placePos.z/VOXEL_SIZE)*VOXEL_SIZE
+      );
+      hoverVoxel.pos.set(
+        Math.round(h.object.position.x),
+        Math.round(h.object.position.y),
+        Math.round(h.object.position.z)
+      );
+    } else if(bestFlora){
+      hoverVoxel={ pos:new THREE.Vector3(bestFlora.x, bestFlora.y+0.7, bestFlora.z),
+        placePos:new THREE.Vector3(bestFlora.x, bestFlora.y+0.7, bestFlora.z),
+        normal:new THREE.Vector3(0,1,0), isFlora:true, isVoxel:false, flora:bestFlora };
+    } else {
+      // terrain fallback for digging dirt
+      const camDist=pt.distanceTo(camera.position);
+      if(camDist>12){ hoverVoxel=null; if(player.blockPreview) player.blockPreview.visible=false; return; }
+      hoverVoxel={ pos:new THREE.Vector3(Math.round(pt.x), Math.round(groundY+0.6), Math.round(pt.z)),
+        placePos:new THREE.Vector3(Math.round(pt.x), Math.round(groundY+0.6), Math.round(pt.z)),
+        normal:new THREE.Vector3(0,1,0), isTerrain:true, isVoxel:false, isFlora:false };
+    }
+  } else {
+    // build mode: ground placement
+    const voxelMeshes=placedVoxels.map(v=>v.mesh);
+    const hits=RAY.intersectObjects(voxelMeshes, false);
+    if(hits.length){
+      const h=hits[0];
+      hoverVoxel={ pos:h.point.clone(), normal:h.face.normal.clone(), object:h.object,
+        placePos: h.point.clone().add(h.face.normal.clone().multiplyScalar(0.6)),
+        isVoxel:true, isFlora:false, hit:h };
+      hoverVoxel.placePos.set(
+        Math.round(hoverVoxel.placePos.x/VOXEL_SIZE)*VOXEL_SIZE,
+        Math.round(hoverVoxel.placePos.y/VOXEL_SIZE)*VOXEL_SIZE,
+        Math.round(hoverVoxel.placePos.z/VOXEL_SIZE)*VOXEL_SIZE
+      );
+      hoverVoxel.pos.set(
+        Math.round(h.object.position.x),
+        Math.round(h.object.position.y),
+        Math.round(h.object.position.z)
+      );
+    } else {
+      const groundY=terrainHeight(player.root.position.x, player.root.position.z);
+      const pt=getIntersectPlaneY(groundY+0.6);
+      const camDist=pt.distanceTo(camera.position);
+      if(camDist>14){ hoverVoxel=null; if(player.blockPreview) player.blockPreview.visible=false; return; }
+      hoverVoxel={ pos:new THREE.Vector3(Math.round(pt.x), Math.round(groundY+0.6), Math.round(pt.z)),
+        placePos:new THREE.Vector3(Math.round(pt.x), Math.round(groundY+0.6), Math.round(pt.z)),
+        normal:new THREE.Vector3(0,1,0), isTerrain:true, isVoxel:false, isFlora:false };
+    }
   }
   if(player.blockPreview){
     if(toolIndex===2 && hoverVoxel){
@@ -1617,20 +1748,60 @@ function tryMine(){
   if(playerState.mineCooldown>0) return;
   playerState.mineCooldown=0.28;
   player._mineT=0.28;
-  if(!hoverVoxel || !hoverVoxel.isVoxel) {
-    // try to mine terrain? For simplicity, dig a hole by removing ground cap? Not implemented.
-    showHudMsg('Aim at a placed block');
+  if(!hoverVoxel){
+    showHudMsg('Nothing to mine');
     return;
   }
-  const mesh=hoverVoxel.object;
-  const idx=placedVoxels.findIndex(v=>v.mesh===mesh);
-  if(idx>=0){
-    scene.remove(mesh);
-    worldGroup.remove(mesh);
-    placedVoxels.splice(idx,1);
-    showHudMsg('Mined block');
+  if(hoverVoxel.isFlora && hoverVoxel.flora){
+    const f=hoverVoxel.flora;
+    if(f.cut) return;
+    f.cut=true;
+    // give resources
+    if(f.type==='bamboo'){ addInv('bamboo', rndi(2,3)); addInv('leaf',1); showHudMsg('Chopped bamboo +'+inventory.bamboo+' bamboo'); }
+    else if(f.type==='bush'){ addInv('leaf', rndi(2,4)); addInv('woodMid',1); showHudMsg('Cut bush → leaves'); }
+    else if(f.type==='pine' || f.type==='sakura'){ addInv('trunk',1); addInv('leaf',2); addInv('plank',1); showHudMsg('Felled '+f.type+' → trunk'); }
+    // visual cut feedback: small puff (reuse chime)
     if(Audio_.on) chime();
+    // schedule slow regrowth (15-35s) — sapling then grows
+    const delay = f.type==='bamboo'? 14 + rnd(8) : f.type==='bush'? 12 + rnd(6) : 22 + rnd(12);
+    regrowthQueue.push({x:f.x, z:f.z, y:f.y, type:f.type, s:f.s||1, scale:f.scale||1, h:f.h, timer:delay, flora:f});
+    // temporary cut mark: add a small stump mesh
+    const stumpGeo=new THREE.BoxGeometry(0.7,0.35,0.7);
+    const stumpMat=MAT.trunk || MAT.wood || new THREE.MeshLambertMaterial({color:0x5b4436});
+    const stump=new THREE.Mesh(stumpGeo, stumpMat);
+    stump.position.set(f.x, f.y+0.18, f.z);
+    scene.add(stump); worldGroup.add(stump);
+    // remove stump after regrowth starts
+    setTimeout(()=>{ scene.remove(stump); worldGroup.remove(stump); }, delay*1000);
+    return;
   }
+  if(hoverVoxel.isVoxel){
+    const mesh=hoverVoxel.object;
+    const idx=placedVoxels.findIndex(v=>v.mesh===mesh);
+    if(idx>=0){
+      const kind=placedVoxels[idx].kind || 'plank';
+      scene.remove(mesh);
+      worldGroup.remove(mesh);
+      placedVoxels.splice(idx,1);
+      addInv(kind,1);
+      showHudMsg('Mined '+kind+' → inventory');
+      if(Audio_.on) chime();
+    }
+    return;
+  }
+  if(hoverVoxel.isTerrain){
+    // mine ground
+    addInv('dirt',1);
+    if(RNG()<0.35) addInv('stone',1);
+    showHudMsg('Dug dirt');
+    if(Audio_.on) chime();
+    // visual dig mark
+    const mk=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.12,0.9), MAT.dirt || new THREE.MeshLambertMaterial({color:0x7a5a3a}));
+    mk.position.copy(hoverVoxel.pos); mk.position.y -=0.44;
+    scene.add(mk); setTimeout(()=>scene.remove(mk), 900);
+    return;
+  }
+  showHudMsg('Nothing to mine');
 }
 function tryBuild(){
   if(toolIndex!==2) return;
@@ -1638,23 +1809,22 @@ function tryBuild(){
   playerState.mineCooldown=0.32;
   if(!hoverVoxel) return;
   const pos=hoverVoxel.placePos.clone();
-  // avoid building inside player
   if(pos.distanceTo(player.root.position)<1.4) return;
-  // avoid building inside existing voxel
-  for(const v of placedVoxels){
-    if(v.mesh.position.distanceTo(pos)<0.6) return;
+  for(const v of placedVoxels){ if(v.mesh.position.distanceTo(pos)<0.6) return; }
+  // choose material from inventory (Minecraft style: consume what you have)
+  let kind=null;
+  for(const k of ['plank','stone','woodMid','trunk','bamboo','dirt','grass']){
+    if((inventory[k]||0)>0){ kind=k; break; }
   }
+  if(!kind){ showHudMsg('Out of materials — mine bamboo/bushes/ground'); return; }
+  consumeInv({[kind]:1});
   const geo=new THREE.BoxGeometry(VOXEL_SIZE,VOXEL_SIZE,VOXEL_SIZE);
-  const mat=new THREE.MeshLambertMaterial({map: TEX_CACHE['plank'] || MAT.plank?.map, color:0xffffff});
-  // Use a random material variant
-  const kinds=['plank','stone','woodMid'];
-  const kind=pick(kinds);
-  const m=new THREE.Mesh(geo, MAT[kind] || mat);
+  const m=new THREE.Mesh(geo, MAT[kind] || MAT.plank);
   m.position.copy(pos);
   m.castShadow=true; m.receiveShadow=true;
   scene.add(m); worldGroup.add(m);
   placedVoxels.push({mesh:m, x:pos.x,y:pos.y,z:pos.z, kind});
-  showHudMsg('Placed '+kind);
+  showHudMsg('Placed '+kind+' — '+inventory[kind]+' left');
 }
 
 /* Mouse handling + First-person look */
@@ -1750,6 +1920,21 @@ function wireUI(){
   if(tog) tog.addEventListener('click',()=>{
     ui.classList.remove('fadeout'); tog.classList.add('hidden');
   });
+  // crafting modal helpers (Minecraft style)
+  const craftBtn=document.getElementById('btn-craft');
+  const craftModal=document.getElementById('craft-modal');
+  const craftClose=document.getElementById('craft-close');
+  function toggleCraft(show){
+    const modal=document.getElementById('craft-modal');
+    if(!modal) return;
+    const shouldShow = show!==undefined ? show : modal.classList.contains('hidden');
+    if(shouldShow){ modal.classList.remove('hidden'); modal.classList.add('flex'); renderCrafting(); updateInvUI(); }
+    else { modal.classList.add('hidden'); modal.classList.remove('flex'); }
+  }
+  craftBtn?.addEventListener('click',()=> toggleCraft());
+  craftClose?.addEventListener('click',()=> toggleCraft(false));
+  craftModal?.addEventListener('click', e=>{ if(e.target===craftModal) toggleCraft(false); });
+  window._toggleCraft = toggleCraft;
   addEventListener('keydown',e=>{
     const k=e.key;
     if(k==='1') document.querySelector('[data-time="morning"]')?.click();
@@ -1760,6 +1945,7 @@ function wireUI(){
     if(k==='6') gotoCam('meadow');
     if(k==='7') gotoCam('vista');
     if(k==='8') gotoCam('bird');
+    if(k.toLowerCase()==='c'){ e.preventDefault(); toggleCraft(); }
     if(k.toLowerCase()==='m') toggleAudio();
     if(k.toLowerCase()==='r'){ controls.autoRotate=!controls.autoRotate;
       document.getElementById('btn-orbit')?.classList.toggle('on',controls.autoRotate); }
@@ -1953,6 +2139,45 @@ function animateActors(t,dt){
       L.light.intensity = L.base*TIME_PRESETS[currentTime].lantern*f;
     }
   }
+  // vegetation regrowth (slow, sapling → adult)
+  for(let i=regrowthQueue.length-1;i>=0;i--){
+    const r=regrowthQueue[i];
+    r.timer -= dt;
+    if(r.timer<=0){
+      spawnRegrowth(r);
+      regrowthQueue.splice(i,1);
+    }
+  }
+  // animal replenishment — babies spawn then grow to adult
+  for(let i=pendingAnimalBabies.length-1;i>=0;i--){
+    const b=pendingAnimalBabies[i];
+    b.timer -= dt;
+    if(b.timer<=0){
+      const P=WORLD.pond;
+      let x,z;
+      for(let tries=0; tries<40; tries++){
+        const a=rnd(Math.PI*2), rr=rnd(GRAZE_R-4,24);
+        x=Math.cos(a)*rr; z=Math.sin(a)*rr;
+        if(Math.hypot((x-P.x)/P.rx,(z-P.z)/P.rz) < POND_CLEAR) continue;
+        if(Math.abs(x)<9 && z>-24 && z<112) continue;
+        if(Math.hypot(x-WORLD.pagoda.x, z-WORLD.pagoda.z) < 18) continue;
+        break;
+      }
+      const baby = b.type==='sheep' ? buildSheep(x,z) : buildAlpaca(x,z);
+      baby.root.scale.setScalar(0.42);
+      baby.isBaby=true; baby.growT=0; baby.baseScale=b.type==='sheep'?1.0:1.12;
+      showHudMsg('Baby '+b.type+' born 🌱');
+      pendingAnimalBabies.splice(i,1);
+    }
+  }
+  for(const a of animals){
+    if(a.isBaby){
+      a.growT=(a.growT||0)+dt/22; // 22s to adulthood
+      const s=lerp(0.42, a.baseScale, clamp(a.growT,0,1));
+      a.root.scale.setScalar(s);
+      if(a.growT>=1){ a.isBaby=false; showHudMsg(a.type+' grew to adult'); }
+    }
+  }
   // player update
   updatePlayer(dt,t);
   // Tomb Raider style third-person — even farther & higher for vista (per latest request)
@@ -2043,6 +2268,7 @@ function boot(){
         camTween.active=false;
         wireUI();
         setTool(0);
+        updateInvUI(); renderCrafting();
         // start in follow mode after short delay
         setTimeout(()=>{ startFollowCam(); }, 1600);
         document.getElementById('s-vox').textContent=VOXEL_COUNT.toLocaleString();
