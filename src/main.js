@@ -621,11 +621,11 @@ function buildSamurai(x,z,rotY,armorKind='lacquer', opts={}){
   const legKind = opts.protagonist ? 'crimson' : 'cloth';
   const accent = opts.protagonist ? 'gold' : 'lacquer';
 
-  // hierarchical samurai legs with knee joints (hip → knee → foot)
+  // hierarchical samurai legs with knee joints — fixed lateral axis (Z) — forward is X
   const samuraiLegs=[];
   for(const s of [-1,1]){
     const hip = new THREE.Group();
-    hip.position.set(s*2.2*M, 6.7*M, 0);
+    hip.position.set(0, 6.7*M, s*1.85*M);
     body.add(hip);
     part(hip, b=>{
       mbox(b,legKind, 0, -1.55, 0, 3.4, 3.65, 3.4);
@@ -1382,15 +1382,15 @@ function updatePlayer(dt,t){
     player.arms[0].rotation.x = lerp(player.arms[0].rotation.x, -0.4, dt*6);
     player.arms[1].rotation.x = lerp(player.arms[1].rotation.x, 0.4, dt*6);
   }
-  // samurai knee walk — biped hip + knee
+  // samurai knee walk — proper biped (no sideways flop): hip Z swings sagittal, knee opposite
   if(player.legs && player.legs[0]){
     if(moving && !isAir && !playerState.isCrawling){
       const ls = Math.sin(time*(playerState.isRunning?8.6:6.2));
       const rs = -ls;
-      player.legs[0].hip.rotation.z = ls*0.54;
-      player.legs[0].knee.rotation.z = ls>0 ? ls*0.92+0.34 : ls*0.16;
-      player.legs[1].hip.rotation.z = rs*0.54;
-      player.legs[1].knee.rotation.z = rs>0 ? rs*0.92+0.34 : rs*0.16;
+      player.legs[0].hip.rotation.z = ls*0.52;
+      player.legs[0].knee.rotation.z = ls>0 ? -ls*1.08 -0.42 : ls*0.13;
+      player.legs[1].hip.rotation.z = rs*0.52;
+      player.legs[1].knee.rotation.z = rs>0 ? -rs*1.08 -0.42 : rs*0.13;
     } else if(playerState.isCrawling && moving){
       const cs = Math.sin(time*3.2);
       player.legs[0].hip.rotation.z = cs*0.22;
@@ -1802,16 +1802,17 @@ function animateActors(t,dt){
         s.root.position.x += Math.sin(dir)*sp;
         s.root.position.z += Math.cos(dir)*sp;
         s.root.position.y = terrainHeight(s.root.position.x, s.root.position.z);
-        // biped knee walk: alternate left/right hip + knee
-        const st=Math.sin(t*6.8);
-        const hipL = st*0.52, hipR = -st*0.52;
+        // biped walk — researched human gait: stance 60% straight, swing 40% flexed
+        // hip swings ±30° (0.52 rad), knee flexes ~65° on swing only (opposite sign to hip)
+        const st=Math.sin(t*6.2);
+        const hipL = st*0.48, hipR = -st*0.48;
         if(s.legs && s.legs[0]){
           s.legs[0].hip.rotation.z = hipL;
-          s.legs[0].knee.rotation.z = hipL>0 ? hipL*0.95+0.28 : hipL*0.15;
+          s.legs[0].knee.rotation.z = hipL>0 ? -hipL*1.15 -0.52 : hipL*0.14;
           s.legs[1].hip.rotation.z = hipR;
-          s.legs[1].knee.rotation.z = hipR>0 ? hipR*0.95+0.28 : hipR*0.15;
+          s.legs[1].knee.rotation.z = hipR>0 ? -hipR*1.15 -0.52 : hipR*0.14;
         }
-        s.body.position.y += Math.abs(st)*0.06;
+        s.body.position.y += Math.abs(st)*0.05;
       } else if(dist<=2.4 && t%1.2<0.05){
         // attack player occasionally
         playerState.hp-=1;
@@ -1877,15 +1878,18 @@ function animateActors(t,dt){
       }
       a.root.position.y = terrainHeight(a.root.position.x,a.root.position.z);
       a.root.rotation.y = a.dir - Math.PI/2;
-      // knee-jointed trot: hip swings, knee bends on forward swing for ground clearance
-      const st=Math.sin(t*6.2+a.phase);
+      // quadruped walk — researched ungulate gait: stance hip extended, swing hip flexes + knee folds backward to clear ground
+      // diagonal trot phased 0&3 vs 1&2, but knee now bends opposite to hip for realistic lift
+      const st=Math.sin(t*5.4+a.phase);
+      const hipAmp = a.type==='alpaca' ? 0.38 : 0.42;
+      const kneeLift = a.type==='alpaca' ? 0.88 : 0.82;
       const setLeg=(leg, hipAngle)=>{
         leg.hip.rotation.z = hipAngle;
-        // knee flexes extra when hip forward (>0) to lift foot, else slight follow
-        const kneeFlex = hipAngle>0 ? hipAngle*1.05 + 0.32 : hipAngle*0.22;
+        // knee flexes opposite to hip: when hip swings forward (hipAngle>0), shin folds back (negative)
+        const kneeFlex = hipAngle>0 ? -hipAngle*kneeLift -0.42 : hipAngle*0.16;
         leg.knee.rotation.z = kneeFlex;
       };
-      const hipA = st*0.44, hipB = -st*0.44;
+      const hipA = st*hipAmp, hipB = -st*hipAmp;
       setLeg(a.legs[0], hipA); setLeg(a.legs[3], hipA);
       setLeg(a.legs[1], hipB); setLeg(a.legs[2], hipB);
       a.body.position.y = Math.abs(Math.sin(t*6.2+a.phase))*0.06;
@@ -1952,13 +1956,12 @@ function animateActors(t,dt){
   }
   // player update
   updatePlayer(dt,t);
-  // Tomb Raider style third-person (even wider & farther) + first-person (outside helmet) + diablo
+  // Tomb Raider style third-person — even farther & higher for vista (per latest request)
   if(cameraMode==='third' && player && !camTween.active){
     const targetPos=player.root.position.clone();
     targetPos.y+= playerState.isCrawling?0.85:2.05;
-    // Even farther & higher per request: FOV 64 + dist 19 so horizon visible
-    const dist = playerState.isCrawling? 8.8 : (playerState.isRunning? 20.5 : 19.0);
-    const height = playerState.isCrawling? 4.2 : (playerState.isRunning? 11.2 : 10.2);
+    const dist = playerState.isCrawling? 9.5 : (playerState.isRunning? 22.5 : 21.0);
+    const height = playerState.isCrawling? 4.8 : (playerState.isRunning? 12.4 : 11.3);
     const yaw = player.yaw;
     const camX = targetPos.x - Math.sin(yaw)*dist;
     const camZ = targetPos.z - Math.cos(yaw)*dist;
