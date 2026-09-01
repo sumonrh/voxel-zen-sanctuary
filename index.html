@@ -43,22 +43,25 @@
   <div class="glass rounded-2xl px-7 py-6 max-w-lg w-full">
     <div class="text-[11px] tracking-[.32em] text-orange-200/70 uppercase mb-2">Auto-Launch Required</div>
     <h2 class="text-xl font-bold tracking-wide">This project needs a local server</h2>
-    <p class="mt-3 text-[12px] leading-relaxed text-white/65">Browsers block ES modules over <code class="bg-white/10 px-1 rounded">file://</code>. The HTML cannot build & run itself — browser sandbox forbids spawning Node. Use one of the one-click launchers:</p>
+    <p class="mt-3 text-[12px] leading-relaxed text-white/65">You opened <code>index.html</code> directly (<code>file://</code>). Browsers block ES modules and <code>.bat</code> execution for security — so <code>index.html</code> <b>cannot</b> auto-build and auto-run the server by itself. This is a browser sandbox limit, not a bug.</p>
+    <p class="mt-2 text-[11px] text-orange-200/80">I’ve wired <code>index.html</code> to auto-detect and auto-redirect when the server <i>is</i> running, and to give you one-click launch helpers when it’s not:</p>
     <div class="mt-4 grid grid-cols-1 gap-2 text-left text-[11px]">
-      <div class="bg-white/10 rounded-lg px-3 py-2 border border-white/10"><b>Windows:</b> double-click <code>start.bat</code></div>
+      <div class="bg-white/10 rounded-lg px-3 py-2 border border-white/10"><b>Windows:</b> double-click <code>start.bat</code> <span class="text-white/40">— now fixed for double-click</span></div>
       <div class="bg-white/10 rounded-lg px-3 py-2 border border-white/10"><b>Mac/Linux:</b> <code>bash start.sh</code> or <code>npm run launch</code></div>
       <div class="bg-white/10 rounded-lg px-3 py-2 border border-white/10"><b>Manual:</b> <code>npm install && npm run dev</code> → <a href="http://127.0.0.1:5173" class="text-orange-200 underline">http://127.0.0.1:5173</a></div>
     </div>
-    <div class="mt-4 flex gap-2 justify-center">
+    <div class="mt-4 flex flex-wrap gap-2 justify-center">
       <button id="guard-try" class="btn on rounded-lg px-4 py-2 text-[12px] font-semibold">🔄 Try localhost:5173</button>
       <button id="guard-copy" class="btn rounded-lg px-4 py-2 text-[12px] font-semibold">📋 Copy command</button>
+      <a id="guard-bat" href="start.bat" download class="btn rounded-lg px-4 py-2 text-[12px] font-semibold">▶️ Open start.bat</a>
     </div>
     <p id="guard-status" class="mt-3 text-[11px] text-white/45"></p>
-    <p class="mt-2 text-[10px] text-white/30">Standalone fallback without server: open <code>Opus 5 Zen Sanctuary.html</code> (CDN version).</p>
+    <p class="mt-2 text-[10px] leading-relaxed text-white/35">Direct auto-execution of <code>start.bat</code> from HTML is blocked by all modern browsers (security sandbox). If it were allowed, any website could run code on your PC. The closest we can do: this page <b>auto-redirects</b> to <code>localhost:5173</code> the moment you start the server — just keep this tab open and double-click <code>start.bat</code>.</p>
   </div>
 </div>
 <script>
-// Auto-detect file:// and server availability. Cannot truly spawn Node from browser — shows helper instead (security sandbox).
+// Auto-detect file:// and server availability — tries to auto-redirect, and offers one-click helpers.
+// True auto-execution of start.bat from HTML is impossible — browsers block it for security.
 (function(){
   const guard=document.getElementById('file-guard');
   const status=document.getElementById('guard-status');
@@ -66,39 +69,42 @@
   async function probe(){
     try{
       const c=new AbortController(); setTimeout(()=>c.abort(),1200);
-      const r=await fetch('http://127.0.0.1:5173/',{signal:c.signal,mode:'no-cors'});
+      await fetch('http://127.0.0.1:5173/',{signal:c.signal,mode:'no-cors'});
       return true;
     }catch{ return false; }
   }
   async function check(){
-    if(!isFile){
-      // also catch http but 404 for /src/main.js? try to detect if Vite not running on preview port
-      return;
-    }
+    if(!isFile) return;
     guard.classList.remove('hidden'); guard.classList.add('flex');
     status.textContent='Checking localhost:5173…';
     if(await probe()){
       status.textContent='Server found — redirecting…';
       location.href='http://127.0.0.1:5173/';
     } else {
-      status.textContent='Server not running. Please run start.bat / npm run dev.';
+      status.textContent='Server not running — click “Try” after you run start.bat';
     }
   }
   document.getElementById('guard-try')?.addEventListener('click', async()=>{
     status.textContent='Checking…';
-    if(await probe()) location.href='http://127.0.0.1:5173/'; else status.textContent='Still not running.';
+    if(await probe()) location.href='http://127.0.0.1:5173/'; else status.textContent='Still not running. Run start.bat, then try again.';
   });
   document.getElementById('guard-copy')?.addEventListener('click',()=>{
     const cmd='npm install && npm run dev';
     navigator.clipboard?.writeText(cmd);
     status.textContent='Copied: '+cmd;
   });
-  // auto-check on load
+  document.getElementById('guard-bat')?.addEventListener('click', (e)=>{
+    // Attempt ActiveX for old IE (will fail on modern browsers, but harmless)
+    try{ const ws=new ActiveXObject('WScript.Shell'); ws.Run('start.bat',1); e.preventDefault(); status.textContent='Launched via ActiveX'; }catch{}
+    // For modern browsers, the <a download> will just download/open the bat file — user still needs to double-click it
+    setTimeout(()=>{ status.textContent='If the bat did not run: find start.bat in your folder and double-click it, then click “Try localhost”'; }, 800);
+  });
+  // Attempt to auto-trigger bat via hidden iframe (blocked by most browsers, but we try once on user gesture requirement — won't auto-run without click)
+  // So we just auto-probe and auto-redirect when server appears
   if(isFile) check();
-  // also if loaded via http but on wrong port (e.g., file proxy), periodically probe
-  setInterval(async()=>{
-    if(isFile && await probe()) location.href='http://127.0.0.1:5173/';
-  }, 3000);
+  setInterval(async()=>{ if(isFile && await probe()) location.href='http://127.0.0.1:5173/'; }, 2500);
+  // Also try to fetch start.bat to show it exists
+  if(isFile) fetch('start.bat', {mode:'no-cors'}).catch(()=>{});
 })();
 </script>
 
